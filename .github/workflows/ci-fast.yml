@@ -39,6 +39,11 @@ jobs:
           python3 tools/run-host-tests.py --check-manifest
           python3 tools/check-source-hygiene.py
           python3 tools/check-ui-i18n.py
+      - name: Extract offline build inputs from official release APK
+        run: |
+          curl -fsSL -o /tmp/dsha-official.apk \
+            "https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk"
+          python3 tools/build-from-release.py /tmp/dsha-official.apk
       - name: Isolated source and protocol regressions
         run: python3 tools/run-host-tests.py --stage fast
       - name: Android Java and both flavor unit tests without offline package generation

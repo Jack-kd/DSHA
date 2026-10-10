@@ -701,8 +701,7 @@
       "args": [],
       "timeoutSeconds": 600,
       "requires": [
-        "node24",
-        "mobile_upstream"
+        "node24"
       ],
       "environment": {
         "DSHA_MOBILE_UPSTREAM_DIR": "{mobileUpstream}"

@@ -29684,7 +29684,8 @@
     "en": "The configured workspace is temporarily unreadable. The personal files folder is open.",
     "files": [
       "app/src/main/java/com/deepseekharness/app/ui/WorkspaceFilesActivity.java"
-    ]
+    ],
+    "id": "workspace_files_personal_fallback"
   },
   {
     "id": "build160_cold_timing_0",

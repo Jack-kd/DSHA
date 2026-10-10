@@ -222,7 +222,8 @@ class FixtureSession:
 
     def environment(self):
         return {'DSHA_TEST_RUN_RECEIPT': str(self.path), 'DSHA_TEST_RUN_SECRET': self.secret,
-                'DSHA_PYTHON': self.metadata_runtime['python']}
+                'DSHA_PYTHON': self.metadata_runtime['python'],
+                'DSHA_PYTHON_VERSION': self.metadata_runtime['pythonVersion']}
 
     def bindings(self):
         return [{'kind': record['kind'], 'directory': record['directory'],

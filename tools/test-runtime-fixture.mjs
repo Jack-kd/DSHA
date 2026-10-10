@@ -76,6 +76,14 @@ export function verifyRuntimeSession(directory,proof){
     }
     return true;
   }
+  // On POSIX the directory entry proof covers dev/ino/size/mtime, but the creator
+  // interpreter identity (python/node path, sha256 and version) must still be bound
+  // to the receipt so a foreign interpreter cannot consume a session it did not create.
+  const runtime=data.metadataRuntime;
+  if(!runtime)throw Error('TEST_FIXTURE_SESSION_METADATA_RUNTIME_CHANGED');
+  if(process.env.DSHA_PYTHON!==runtime.python||process.env.DSHA_PYTHON_VERSION!==runtime.pythonVersion)throw Error('TEST_FIXTURE_SESSION_METADATA_RUNTIME_CHANGED');
+  if(fs.realpathSync(process.execPath).toLowerCase()!==(runtime.node||'').toLowerCase()||sha(process.execPath)!==runtime.nodeSha256)throw Error('TEST_FIXTURE_SESSION_METADATA_RUNTIME_CHANGED');
+  if(!fs.existsSync(runtime.python)||sha(runtime.python)!==runtime.pythonSha256)throw Error('TEST_FIXTURE_SESSION_METADATA_RUNTIME_CHANGED');
   const rootStat=fs.lstatSync(selected,{bigint:true});
   if(rootStat.isSymbolicLink()||!rootStat.isDirectory()||rootStat.dev.toString()!==record.metadata?.root?.dev||rootStat.ino.toString()!==record.metadata?.root?.ino)throw Error('TEST_FIXTURE_SESSION_ROOT_CHANGED');
   const entries={};let count=0;
