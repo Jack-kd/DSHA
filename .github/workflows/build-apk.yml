@@ -1,0 +1,147 @@
+# 从源码编译 v0.2.0-rc2 正式 APK。
+#
+# git 里不提交三个大文件（offline-rootfs.bin / dsh-runtime.bin /
+# ubuntu-tools.bin），本工作流从官方 Release APK 提取它们，用项目自身的
+# 生成器重建 inputs.json 和 runtime-descriptor.json，再打 unsigned 包
+# 并用独立 keystore 签名。
+#
+# 签名说明：正式包用 E7E3 历史证书签名（原仓库 secret），fork 仓库没有
+# 这把钥匙。本工作流用自动生成的 keystore 签名，产出的 APK 功能与正式
+# 包一致但签名不同——已装正式包的设备需要先卸载才能安装本包。如需固定
+# 签名，把 keystore 的 base64 存到仓库 secret DSHA_SIGNING_KEYSTORE_BASE64
+# （密码 DSHA_SIGNING_STORE_PASS / DSHA_SIGNING_KEY_PASS / 别名
+# DSHA_SIGNING_KEY_ALIAS），工作流会自动使用。
+name: Build v0.2.0-rc2 APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 官方 Release APK 下载地址（留空用默认 v0.2.0-rc2）
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: 读取工具链版本
+        id: toolchain
+        run: python3 tools/ci-toolchain.py --github-output
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.toolchain.outputs.java }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+
+      - name: 下载官方 Release APK
+        run: |
+          url="${{ inputs.apk_url }}"
+          if [ -z "$url" ]; then
+            url="https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk"
+          fi
+          echo "下载 $url"
+          curl -L --fail --retry 3 --connect-timeout 30 --max-time 600 \
+            -o /tmp/dsha-official.apk "$url"
+          ls -lh /tmp/dsha-official.apk
+
+      - name: 从 APK 提取离线输入并重建元数据
+        run: python3 tools/build-from-release.py /tmp/dsha-official.apk
+
+      - name: 安装 Android SDK 组件
+        run: |
+          platform=$(python3 tools/ci-toolchain.py --field androidPlatform)
+          buildtools=$(python3 tools/ci-toolchain.py --field buildTools)
+          ndk=$(python3 tools/ci-toolchain.py --field ndk)
+          sdkmanager "platforms;$platform" "build-tools;$buildtools" "ndk;$ndk"
+
+      - name: 编译 unsigned APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleStandardRelease :app:assembleLowRelease \
+            -Pdsha.unsignedPackage=true --no-daemon --max-workers=2
+
+      - name: 准备签名密钥
+        id: keystore
+        run: |
+          umask 077
+          KS="$RUNNER_TEMP/dsha-signing.keystore"
+          if [ -n "${{ secrets.DSHA_SIGNING_KEYSTORE_BASE64 }}" ]; then
+            printf '%s' '${{ secrets.DSHA_SIGNING_KEYSTORE_BASE64 }}' | base64 --decode > "$KS"
+            echo "store=$KS" >> "$GITHUB_OUTPUT"
+            echo "使用仓库 secret 提供的 keystore"
+          else
+            keytool -genkeypair -v \
+              -keystore "$KS" \
+              -alias dsha-key \
+              -keyalg RSA -keysize 2048 \
+              -validity 10000 \
+              -storepass dsha-store-pass \
+              -keypass dsha-key-pass \
+              -dname "CN=DSHA Build, OU=Build, O=Build, L=Build, ST=Build, C=CN"
+            echo "store=$KS" >> "$GITHUB_OUTPUT"
+            echo "生成临时 keystore（如需固定签名请把 keystore base64 存到 secret DSHA_SIGNING_KEYSTORE_BASE64）"
+          fi
+
+      - name: 签名 APK
+        env:
+          KS: ${{ steps.keystore.outputs.store }}
+          KS_PASS: ${{ secrets.DSHA_SIGNING_STORE_PASS || 'dsha-store-pass' }}
+          KEY_PASS: ${{ secrets.DSHA_SIGNING_KEY_PASS || 'dsha-key-pass' }}
+          KEY_ALIAS: ${{ secrets.DSHA_SIGNING_KEY_ALIAS || 'dsha-key' }}
+        run: |
+          bt="$ANDROID_HOME/build-tools/36.0.0"
+          aligner="$bt/zipalign"
+          signer="$bt/apksigner"
+          mkdir -p release
+          version="0.2.0-rc2"
+          # standard
+          unsigned="app/build/outputs/apk/standard/release/app-standard-release-unsigned.apk"
+          aligned="/tmp/dsha-standard-aligned.apk"
+          signed="release/dsha-$version.apk"
+          "$aligner" -f 4 "$unsigned" "$aligned"
+          "$signer" sign \
+            --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KS_PASS" --key-pass "pass:$KEY_PASS" \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$signed" "$aligned"
+          "$signer" verify --min-sdk-version 23 --verbose "$signed" || true
+          sha256sum "$signed" > "$signed.sha256"
+          # low
+          unsigned="app/build/outputs/apk/low/release/app-low-release-unsigned.apk"
+          aligned="/tmp/dsha-low-aligned.apk"
+          signed="release/dsha-${version}low.apk"
+          "$aligner" -f 4 "$unsigned" "$aligned"
+          "$signer" sign \
+            --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KS_PASS" --key-pass "pass:$KEY_PASS" \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$signed" "$aligned"
+          "$signer" verify --min-sdk-version 23 --verbose "$signed" || true
+          sha256sum "$signed" > "$signed.sha256"
+          ls -lh release/
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dsha-0.2.0-rc2-apks
+          path: |
+            release/*.apk
+            release/*.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
