@@ -50,6 +50,13 @@ jobs:
         with:
           node-version: ${{ steps.toolchain.outputs.node }}
 
+      - name: 设置 Android SDK
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/lib/android/sdk/platform-tools" >> "$GITHUB_PATH"
+
       - name: 下载官方 Release APK
         run: |
           url="${{ inputs.apk_url }}"
