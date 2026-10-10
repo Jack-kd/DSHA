@@ -192,7 +192,7 @@ public class AdbWheelPathsTest {
           "/sdcard/Documents/dshdata",
           "../sdcard/dshdata",
           "/data/user/0/other.app/files/data",
-          new File(data.getParentFile(), "other-app").getPath()
+          "/data/data/other.app/files"
         }) {
       fs.links.put(link, target);
       assertThrows(target, IOException.class, () -> bind(fs, data));
