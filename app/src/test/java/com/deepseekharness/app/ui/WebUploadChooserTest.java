@@ -22,10 +22,12 @@ public class WebUploadChooserTest {
   @Test
   public void documentFiltersPreserveMixedTypesAndNormalizeBlanks() {
     String[] types = {" application/pdf , image/jpeg", "IMAGE/PNG", "image/jpeg", null, " "};
-    assertArrayEquals(new String[] {"application/pdf", "image/jpeg", "image/png"},
+    assertArrayEquals(
+        new String[] {"application/pdf", "image/jpeg", "image/png"},
         WebUploadChooser.normalized(types));
     assertEquals("*/*", WebUploadChooser.mimeType(types));
-    assertEquals("application/pdf", WebUploadChooser.mimeType(new String[] {" APPLICATION/PDF ", ""}));
+    assertEquals(
+        "application/pdf", WebUploadChooser.mimeType(new String[] {" APPLICATION/PDF ", ""}));
     assertEquals("image/*", WebUploadChooser.mimeType(new String[] {"image/*"}));
   }
 
