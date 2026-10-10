@@ -162,6 +162,24 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-bridge-files.py",
+      "stage": "runtime",
+      "reason": "Current bridge/file policy JVM behaviors with explicit descriptor fixture and locked JUnit/Gson; no Android/FUSE process",
+      "requires": [
+        "python39",
+        "jdk17",
+        "toolchains"
+      ],
+      "environment": {},
+      "timeoutSeconds": 300,
+      "args": [
+        "--jdk",
+        "{jdk}",
+        "--gradle-home",
+        "{gradleHome}"
+      ]
+    },
+    {
       "path": "tools/test-bridge-logic.ps1",
       "stage": "windows",
       "reason": "仅Windows的宿主源级/编译回归，不参与Linux快速层",
@@ -204,6 +222,17 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-bridge-token-transport.py",
+      "stage": "fast",
+      "reason": "Active managed bridge client/help header-transport source gate only; real behaviors have separate Node/JVM fixtures",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": []
     },
     {
       "path": "tools/test-browser-compat.mjs",
@@ -317,6 +346,17 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-core-boundaries.py",
+      "stage": "fast",
+      "reason": "Current source ownership boundaries only; lifecycle/LAN/launcher behavior is separately covered by JVM fixtures",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": []
+    },
+    {
       "path": "tools/test-credential-paths.py",
       "stage": "fast",
       "reason": "Current source behavior regression; explicit platform inputs required",
@@ -327,6 +367,21 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-credential-yaml-projection.mjs",
+      "stage": "runtime",
+      "reason": "Actual current Java credential projection versus locked rc2 LocalCredentialProvider writer/parser on isolated constructed credentials; no real values",
+      "requires": [
+        "node24",
+        "raw",
+        "jdk17"
+      ],
+      "environment": {
+        "JAVA_HOME": "{jdk}"
+      },
+      "timeoutSeconds": 600,
+      "args": []
     },
     {
       "path": "tools/test-deepseek-messages-compat.mjs",
@@ -453,6 +508,17 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-format-java-tree.py",
+      "stage": "fast",
+      "reason": "Exact six-source-set formatter inventory and package batch regression; no device or APK",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 300,
+      "args": []
+    },
+    {
       "path": "tools/test-gecko-model-navigation.mjs",
       "stage": "history",
       "reason": "已退役旧补丁/一次性入口；历史源码保留，不作为当前通过证据",
@@ -474,6 +540,17 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-host-test-runner.py",
+      "stage": "fast",
+      "reason": "Actual child failures/timeouts, manifest coverage and private environment; explicit setup-error fixture",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": []
+    },
+    {
       "path": "tools/test-issue67-startup.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -485,6 +562,20 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-java-format.py",
+      "stage": "fast",
+      "reason": "Pinned JDK17 formatter/token/compilation fixture; no device",
+      "requires": [
+        "python39",
+        "jdk17"
+      ],
+      "environment": {
+        "JAVA_HOME": "{jdk}"
+      },
+      "timeoutSeconds": 300,
+      "args": []
     },
     {
       "path": "tools/test-legacy-preset-convert.mjs",
@@ -515,6 +606,17 @@
         "DSHA_RUNTIME_ARCHIVE": "{runtimeArchive}"
       },
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-low-preview-capability.mjs",
+      "stage": "fast",
+      "reason": "Current Java-embedded WebView capability probe and Low selection source check; no device",
+      "requires": [
+        "node24"
+      ],
+      "environment": {},
+      "timeoutSeconds": 300,
+      "args": []
     },
     {
       "path": "tools/test-mobile-auth.mjs",
@@ -568,6 +670,31 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-mobile-reasoning-defaults.mjs",
+      "stage": "runtime",
+      "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
+      "args": [],
+      "timeoutSeconds": 900,
+      "requires": [
+        "node24"
+      ],
+      "environment": {},
+      "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-mobile-refresh.mjs",
+      "stage": "runtime",
+      "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
+      "args": [],
+      "timeoutSeconds": 900,
+      "requires": [
+        "node24",
+        "browser"
+      ],
+      "environment": {},
+      "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
       "path": "tools/test-mobile-server-patches.mjs",
       "stage": "fast",
       "reason": "Current source behavior regression; explicit platform inputs required",
@@ -607,6 +734,18 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-native-device-policy.py",
+      "stage": "fast",
+      "reason": "Compile current native DeviceShellPolicy and execute protected-command rejection, allowed reads and SMS dry plans; no Android/device",
+      "requires": [
+        "python39",
+        "jdk17"
+      ],
+      "environment": {},
+      "timeoutSeconds": 180,
+      "args": []
+    },
+    {
       "path": "tools/test-native-plugin-manager.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -621,6 +760,41 @@
         "DSHA_RAW_RUNTIME": "{raw}"
       },
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-native-session-build.py",
+      "stage": "fast",
+      "reason": "Explicit fake compiler verifies API23 JNI build inputs and command behavior; no production native rebuild",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 600,
+      "args": []
+    },
+    {
+      "path": "tools/test-native-session-handshake.py",
+      "stage": "linux",
+      "reason": "Fresh compilation of the current C launcher and real Linux kernel birth/parent/session/guest handshake through explicit WSL Node inputs; no Android device claim, no WSL repair or downloads",
+      "requires": [
+        "python39",
+        "linux_node"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": [
+        "--linux-host",
+        "{linuxHost}",
+        "--native-inputs",
+        "{linuxNativeInputs}",
+        "--wsl-distro",
+        "{wslDistro}",
+        "--linux-tempdir",
+        "{linuxTempdir}",
+        "--work-directory",
+        "{fixture}"
+      ],
+      "cli": "Explicit verified Linux Node and prepared NDK/Ubuntu cross-build inputs on Windows; native Linux keeps cc/Python behavior tests"
     },
     {
       "path": "tools/test-notification-actions.py",
@@ -862,6 +1036,19 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-rc2-tooltips.mjs",
+      "stage": "runtime",
+      "reason": "Locked current rc2 React/Tooltip in a real browser with pointer, touch, scrolling and blur events",
+      "requires": [
+        "node24",
+        "raw",
+        "browser"
+      ],
+      "environment": {},
+      "timeoutSeconds": 600,
+      "args": []
+    },
+    {
       "path": "tools/test-recovery-agent.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -951,6 +1138,18 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-release-layout.py",
+      "stage": "fast",
+      "reason": "Version-grouped local delivery paths, ownership and byte-preserving migration; no phone operations.",
+      "args": [],
+      "timeoutSeconds": 60,
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
       "path": "tools/test-release-names.py",
       "stage": "fast",
       "reason": "隔离宿主或纯源码/协议回归，无发布密钥、设备和真实用户数据",
@@ -983,6 +1182,17 @@
       "environment": {}
     },
     {
+      "path": "tools/test-retired-audit-contract.py",
+      "stage": "fast",
+      "reason": "Retired-original byte provenance and current debug/androidTest source/manifest structure only; no device execution",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": []
+    },
+    {
       "path": "tools/test-runtime-descriptor-inputs.py",
       "stage": "fast",
       "reason": "隔离宿主或纯源码/协议回归，无发布密钥、设备和真实用户数据",
@@ -993,6 +1203,17 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-runtime-descriptor-source.py",
+      "stage": "fast",
+      "reason": "Current descriptor verifier on isolated filesystem: missing archive, changed CRLF bytes, launcher and identity mismatch",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 600,
+      "args": []
     },
     {
       "path": "tools/test-runtime-fixture.mjs",
@@ -1061,6 +1282,41 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-runtime-session.py",
+      "stage": "fast",
+      "reason": "Real Node/Python receipt consumption and filesystem tampering prove provisional reuse, parent/path scope and mandatory final complete-byte rejection",
+      "requires": [
+        "python39",
+        "node24"
+      ],
+      "environment": {},
+      "timeoutSeconds": 180,
+      "args": []
+    },
+    {
+      "path": "tools/test-runtime-stop-recovery.py",
+      "stage": "runtime",
+      "reason": "Compile actual WebProcessManager adapter/stop algorithm and TrialRecovery with explicit kernel outcomes and real private JVM files; Android classes are dependency inputs",
+      "requires": [
+        "python39",
+        "jdk17",
+        "toolchains",
+        "debug_classes"
+      ],
+      "environment": {},
+      "timeoutSeconds": 180,
+      "args": [
+        "--jdk",
+        "{jdk}",
+        "--sdk",
+        "{sdk}",
+        "--gradle-home",
+        "{gradleHome}",
+        "--flavor",
+        "{flavor}"
+      ]
+    },
+    {
       "path": "tools/test-runtime-trial.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -1087,6 +1343,26 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-skill-import.mjs",
+      "stage": "runtime",
+      "reason": "Generate two real JVM SkillImports fixtures with JDK17 and SHA-verified SnakeYAML/Gson from the existing backup dependency lock, then read with the pinned rc2 provider/tool; no Android, JUnit, phone or user-data operations.",
+      "args": [
+        "--jdk",
+        "{jdk}",
+        "--fixture",
+        "{fixture}"
+      ],
+      "timeoutSeconds": 60,
+      "requires": [
+        "node24",
+        "raw",
+        "jdk17",
+        "python39"
+      ],
+      "environment": {},
+      "cli": "--jdk <JDK17 directory> --fixture <runner-owned directory>; missing locked JARs are fetched from Maven Central and checked by SHA256. The legacy single fixture argument remains an optional compound mode."
     },
     {
       "path": "tools/test-source-text.py",
@@ -1179,6 +1455,17 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-third-party-notices.py",
+      "stage": "fast",
+      "reason": "Current notice generator on isolated npm/JNI trees rejects metadata drift, missing notices and unknown native sources",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 600,
+      "args": []
+    },
+    {
       "path": "tools/test-ui-boundaries154.py",
       "stage": "fast",
       "reason": "Current source behavior regression; explicit platform inputs required",
@@ -1203,6 +1490,17 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-ui-i18n.py",
+      "stage": "fast",
+      "reason": "Lexical UI scanner behavior on synthetic sources and isolated inventories; does not claim full screen internationalization",
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "timeoutSeconds": 300,
+      "args": []
+    },
+    {
       "path": "tools/test-ui-language.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -1214,6 +1512,18 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-unit-test-runner.py",
+      "stage": "fast",
+      "reason": "Actual javac helper compilation, JDK argument-file quoting and compile-failure cleanup; explicit launcher fixture",
+      "requires": [
+        "python39",
+        "jdk17"
+      ],
+      "environment": {},
+      "timeoutSeconds": 180,
+      "args": []
     },
     {
       "path": "tools/test-update-flow.ps1",
@@ -1254,6 +1564,26 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-vscreen-manager-http.py",
+      "stage": "runtime",
+      "reason": "Fresh main/standard release source compilation with current StandardRelease resources and BuildConfig, locked host dependencies, owned-state JUnit and real bounded loopback HTTP; no device, Gradle or APK generation",
+      "requires": [
+        "python39",
+        "jdk17",
+        "toolchains"
+      ],
+      "environment": {},
+      "timeoutSeconds": 300,
+      "args": [
+        "--jdk",
+        "{jdk}",
+        "--sdk",
+        "{sdk}",
+        "--gradle-home",
+        "{gradleHome}"
+      ]
+    },
+    {
       "path": "tools/test-vscreen.mjs",
       "stage": "runtime",
       "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
@@ -1264,6 +1594,18 @@
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-web-browser-fixture.py",
+      "stage": "fast",
+      "reason": "Compile the sole shared test HTTP server and execute real TCP page/client/report/download/redirect/truncation/cancellation checks",
+      "requires": [
+        "python39",
+        "jdk17"
+      ],
+      "environment": {},
+      "timeoutSeconds": 120,
+      "args": []
     },
     {
       "path": "tools/test-web-compat.mjs",
@@ -1287,6 +1629,19 @@
       "timeoutSeconds": 300,
       "requires": [
         "node24"
+      ],
+      "environment": {},
+      "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
+      "path": "tools/test-web-file-actions.mjs",
+      "stage": "runtime",
+      "reason": "Current source/verified runtime host fixture; explicit dependencies and sandbox HOME; no Android device operations",
+      "args": [],
+      "timeoutSeconds": 900,
+      "requires": [
+        "node24",
+        "browser"
       ],
       "environment": {},
       "cli": "no positional arguments; see explicit environment/requirements"
@@ -1318,291 +1673,6 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
-      "path": "tools/test-vscreen-manager-http.py",
-      "stage": "runtime",
-      "reason": "Fresh main/standard release source compilation with current StandardRelease resources and BuildConfig, locked host dependencies, owned-state JUnit and real bounded loopback HTTP; no device, Gradle or APK generation",
-      "requires": [
-        "python39",
-        "jdk17",
-        "toolchains"
-      ],
-      "environment": {},
-      "timeoutSeconds": 300,
-      "args": [
-        "--jdk",
-        "{jdk}",
-        "--sdk",
-        "{sdk}",
-        "--gradle-home",
-        "{gradleHome}"
-      ]
-    },
-    {
-      "path": "tools/test-format-java-tree.py",
-      "stage": "fast",
-      "reason": "Exact six-source-set formatter inventory and package batch regression; no device or APK",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 300,
-      "args": []
-    },
-    {
-      "path": "tools/test-low-preview-capability.mjs",
-      "stage": "fast",
-      "reason": "Current Java-embedded WebView capability probe and Low selection source check; no device",
-      "requires": [
-        "node24"
-      ],
-      "environment": {},
-      "timeoutSeconds": 300,
-      "args": []
-    },
-    {
-      "path": "tools/test-runtime-stop-recovery.py",
-      "stage": "runtime",
-      "reason": "Compile actual WebProcessManager adapter/stop algorithm and TrialRecovery with explicit kernel outcomes and real private JVM files; Android classes are dependency inputs",
-      "requires": [
-        "python39",
-        "jdk17",
-        "toolchains",
-        "debug_classes"
-      ],
-      "environment": {},
-      "timeoutSeconds": 180,
-      "args": [
-        "--jdk",
-        "{jdk}",
-        "--sdk",
-        "{sdk}",
-        "--gradle-home",
-        "{gradleHome}",
-        "--flavor",
-        "{flavor}"
-      ]
-    },
-    {
-      "path": "tools/test-credential-yaml-projection.mjs",
-      "stage": "runtime",
-      "reason": "Actual current Java credential projection versus locked rc2 LocalCredentialProvider writer/parser on isolated constructed credentials; no real values",
-      "requires": [
-        "node24",
-        "raw",
-        "jdk17"
-      ],
-      "environment": {
-        "JAVA_HOME": "{jdk}"
-      },
-      "timeoutSeconds": 600,
-      "args": []
-    },
-    {
-      "path": "tools/test-native-session-handshake.py",
-      "stage": "linux",
-      "reason": "Fresh compilation of the current C launcher and real Linux kernel birth/parent/session/guest handshake through explicit WSL Node inputs; no Android device claim, no WSL repair or downloads",
-      "requires": [
-        "python39",
-        "linux_node"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": [
-        "--linux-host",
-        "{linuxHost}",
-        "--native-inputs",
-        "{linuxNativeInputs}",
-        "--wsl-distro",
-        "{wslDistro}",
-        "--linux-tempdir",
-        "{linuxTempdir}",
-        "--work-directory",
-        "{fixture}"
-      ],
-      "cli": "Explicit verified Linux Node and prepared NDK/Ubuntu cross-build inputs on Windows; native Linux keeps cc/Python behavior tests"
-    },
-    {
-      "path": "tools/test-web-browser-fixture.py",
-      "stage": "fast",
-      "reason": "Compile the sole shared test HTTP server and execute real TCP page/client/report/download/redirect/truncation/cancellation checks",
-      "requires": [
-        "python39",
-        "jdk17"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": []
-    },
-    {
-      "path": "tools/test-retired-audit-contract.py",
-      "stage": "fast",
-      "reason": "Retired-original byte provenance and current debug/androidTest source/manifest structure only; no device execution",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": []
-    },
-    {
-      "path": "tools/test-bridge-files.py",
-      "stage": "runtime",
-      "reason": "Current bridge/file policy JVM behaviors with explicit descriptor fixture and locked JUnit/Gson; no Android/FUSE process",
-      "requires": [
-        "python39",
-        "jdk17",
-        "toolchains"
-      ],
-      "environment": {},
-      "timeoutSeconds": 300,
-      "args": [
-        "--jdk",
-        "{jdk}",
-        "--gradle-home",
-        "{gradleHome}"
-      ]
-    },
-    {
-      "path": "tools/test-bridge-token-transport.py",
-      "stage": "fast",
-      "reason": "Active managed bridge client/help header-transport source gate only; real behaviors have separate Node/JVM fixtures",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": []
-    },
-    {
-      "path": "tools/test-runtime-session.py",
-      "stage": "fast",
-      "reason": "Real Node/Python receipt consumption and filesystem tampering prove provisional reuse, parent/path scope and mandatory final complete-byte rejection",
-      "requires": [
-        "python39",
-        "node24"
-      ],
-      "environment": {},
-      "timeoutSeconds": 180,
-      "args": []
-    },
-    {
-      "path": "tools/test-core-boundaries.py",
-      "stage": "fast",
-      "reason": "Current source ownership boundaries only; lifecycle/LAN/launcher behavior is separately covered by JVM fixtures",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": []
-    },
-    {
-      "path": "tools/test-ui-i18n.py",
-      "stage": "fast",
-      "reason": "Lexical UI scanner behavior on synthetic sources and isolated inventories; does not claim full screen internationalization",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 300,
-      "args": []
-    },
-    {
-      "path": "tools/test-rc2-tooltips.mjs",
-      "stage": "runtime",
-      "reason": "Locked current rc2 React/Tooltip in a real browser with pointer, touch, scrolling and blur events",
-      "requires": [
-        "node24",
-        "raw",
-        "browser"
-      ],
-      "environment": {},
-      "timeoutSeconds": 600,
-      "args": []
-    },
-    {
-      "path": "tools/test-third-party-notices.py",
-      "stage": "fast",
-      "reason": "Current notice generator on isolated npm/JNI trees rejects metadata drift, missing notices and unknown native sources",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 600,
-      "args": []
-    },
-    {
-      "path": "tools/test-native-session-build.py",
-      "stage": "fast",
-      "reason": "Explicit fake compiler verifies API23 JNI build inputs and command behavior; no production native rebuild",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 600,
-      "args": []
-    },
-    {
-      "path": "tools/test-runtime-descriptor-source.py",
-      "stage": "fast",
-      "reason": "Current descriptor verifier on isolated filesystem: missing archive, changed CRLF bytes, launcher and identity mismatch",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 600,
-      "args": []
-    },
-    {
-      "path": "tools/test-host-test-runner.py",
-      "stage": "fast",
-      "reason": "Actual child failures/timeouts, manifest coverage and private environment; explicit setup-error fixture",
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "timeoutSeconds": 120,
-      "args": []
-    },
-    {
-      "path": "tools/test-unit-test-runner.py",
-      "stage": "fast",
-      "reason": "Actual javac helper compilation, JDK argument-file quoting and compile-failure cleanup; explicit launcher fixture",
-      "requires": [
-        "python39",
-        "jdk17"
-      ],
-      "environment": {},
-      "timeoutSeconds": 180,
-      "args": []
-    },
-    {
-      "path": "tools/test-native-device-policy.py",
-      "stage": "fast",
-      "reason": "Compile current native DeviceShellPolicy and execute protected-command rejection, allowed reads and SMS dry plans; no Android/device",
-      "requires": [
-        "python39",
-        "jdk17"
-      ],
-      "environment": {},
-      "timeoutSeconds": 180,
-      "args": []
-    },
-    {
-      "path": "tools/test-java-format.py",
-      "stage": "fast",
-      "reason": "Pinned JDK17 formatter/token/compilation fixture; no device",
-      "requires": [
-        "python39",
-        "jdk17"
-      ],
-      "environment": {
-        "JAVA_HOME": "{jdk}"
-      },
-      "timeoutSeconds": 300,
-      "args": []
-    },
-    {
       "path": "tools/test-workspace-directory-policy.mjs",
       "stage": "runtime",
       "reason": "Actual locked rc2 workspace resolver transformed by the production builder, real WorkspaceRegistry/DomainFacility/JsonStorageBackend filesystem creation and durable reopen; explicit Linux/HOME and Session-list peers. Full current managed module/archive/recipe-byte equality required; no Android device inference.",
@@ -1619,38 +1689,6 @@
         "--verify-archive"
       ],
       "cli": "--verify-archive; current source/marker/lock bytes and production builder through DSHA_PYTHON; no APK/archive generation or fixture-pointer mutation"
-    },
-    {
-      "path": "tools/test-release-layout.py",
-      "stage": "fast",
-      "reason": "Version-grouped local delivery paths, ownership and byte-preserving migration; no phone operations.",
-      "args": [],
-      "timeoutSeconds": 60,
-      "requires": [
-        "python39"
-      ],
-      "environment": {},
-      "cli": "no positional arguments; see explicit environment/requirements"
-    },
-    {
-      "path": "tools/test-skill-import.mjs",
-      "stage": "runtime",
-      "reason": "Generate two real JVM SkillImports fixtures with JDK17 and SHA-verified SnakeYAML/Gson from the existing backup dependency lock, then read with the pinned rc2 provider/tool; no Android, JUnit, phone or user-data operations.",
-      "args": [
-        "--jdk",
-        "{jdk}",
-        "--fixture",
-        "{fixture}"
-      ],
-      "timeoutSeconds": 60,
-      "requires": [
-        "node24",
-        "raw",
-        "jdk17",
-        "python39"
-      ],
-      "environment": {},
-      "cli": "--jdk <JDK17 directory> --fixture <runner-owned directory>; missing locked JARs are fetched from Maven Central and checked by SHA256. The legacy single fixture argument remains an optional compound mode."
     }
   ],
   "historicalExcluded": [
