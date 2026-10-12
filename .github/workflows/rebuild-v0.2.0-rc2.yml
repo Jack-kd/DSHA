@@ -1,0 +1,210 @@
+# ============================================================================
+# 从本仓库编译出 v0.2.0-rc2（build170）—— GitHub Actions 适配工作流
+#
+# 为什么需要它：DSHA 的构建依赖一批离线固定输入（offline-rootfs.bin 源 rootfs、
+# dsh-runtime.bin、ubuntu-tools.bin 等），仓库不提交、原 CI 从开发者私有的 asset
+# bundle 恢复。本工作流改用「官方发布 APK 内嵌的离线资产」替代，因此：
+#   * 不需要任何私有资产包 URL；
+#   * 不需要官方签名密钥（缺省用自动生成并缓存的本地密钥签名，产物可安装）；
+#   * 逐条目校验产物与官方 APK 的一致性（除签名与记账字段）。
+#
+# 触发：手动（Actions → 本工作流 → Run workflow），或本文件/元数据脚本变更时自动。
+# ============================================================================
+name: Build v0.2.0-rc2 (adapted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      official_apk_url:
+        description: 官方 v0.2.0-rc2 APK 地址（离线资产来源）
+        required: false
+        default: https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk
+        type: string
+      official_apk_sha256:
+        description: 该 APK 的 SHA-256（完整性固定；留空则跳过校验）
+        required: false
+        default: 1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961
+        type: string
+      sign_with_local_key:
+        description: 用本地生成的（缓存）密钥签名，产出可安装 APK
+        required: false
+        default: true
+        type: boolean
+  push:
+    paths:
+      - '.github/workflows/rebuild-v0.2.0-rc2.yml'
+      - 'tools/regenerate-input-metadata.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebuild-020rc2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: 核对源码版本（必须是 v0.2.0-rc2 / build170）
+        run: |
+          set -euo pipefail
+          grep -E "dshaApkNameVersion|versionCode|versionName" app/build.gradle | head -5
+          grep -q "dshaApkNameVersion = '0.2.0-rc2'" app/build.gradle \
+            || { echo "::error::仓库不是 v0.2.0-rc2，本工作流只适配该版本"; exit 1; }
+          {
+            echo "### DSHA v0.2.0-rc2 适配构建"
+            echo ""
+            echo "- 源码：\`$GITHUB_SHA\`"
+            echo "- 版本：\`$(grep -o 'versionName \"[^\"]*\"' app/build.gradle | head -1)\`"
+            echo "- 离线资产来源：官方发布 APK 内嵌资产"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: '3.12'
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: 安装 SDK platform 37 + build-tools 36（standard 构建无需 NDK）
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'app/build.gradle', 'settings.gradle', 'gradle.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: 缓存本地签名密钥（保证多次构建签名一致、可覆盖安装）
+        if: ${{ inputs.sign_with_local_key != false }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .adapted-build
+          key: dsha-adapted-keystore-v1
+
+      - name: 从官方 APK 恢复离线构建输入
+        env:
+          APK_URL: ${{ inputs.official_apk_url || 'https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk' }}
+          APK_SHA: ${{ inputs.official_apk_sha256 }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 5 -o /tmp/official.apk "$APK_URL"
+          if [ -n "${APK_SHA:-}" ]; then
+            echo "${APK_SHA}  /tmp/official.apk" | sha256sum -c - \
+              || { echo "::error::官方 APK 摘要不符，请更新 official_apk_sha256 输入"; exit 1; }
+          fi
+          mkdir -p /tmp/extracted
+          # 只取「非生成物」的离线输入；offline-rootfs.bytes/.sha256/.layout 与
+          # dsh-runtime.sha256 是构建生成物，放进源目录会被 asset-deployment 校验拒绝。
+          unzip -o /tmp/official.apk \
+            "assets/offline-rootfs.bin" \
+            "assets/dsh-runtime.bin" \
+            "assets/ubuntu-tools.bin" \
+            "assets/ubuntu-tools.layout" \
+            "assets/ubuntu-tools.manifest.json" \
+            -d /tmp/extracted
+          cp /tmp/extracted/assets/* app/src/main/assets/
+          ls -la app/src/main/assets/ | grep -E "offline-rootfs.bin|dsh-runtime.bin|ubuntu-tools"
+
+      - name: 重建受管输入元数据与运行时描述符
+        run: |
+          set -euo pipefail
+          python3 -B tools/regenerate-input-metadata.py
+          ( cd tools && python3 -B prepare-runtime-descriptor.py --write && python3 -B prepare-runtime-descriptor.py --check )
+
+      - name: 构建前契约检查
+        run: |
+          set -euo pipefail
+          python3 -B tools/prepare-runtime-tools.py --check
+          python3 -B tools/generate-builtin-plugins.py --verify
+          python3 -B tools/generate-credential-paths.py --check
+          python3 -B tools/prepare-backup-assets.py --check
+
+      - name: 构建未签名 standard release
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleStandardRelease -Pdsha.unsignedPackage=true --console=plain --no-daemon
+
+      - name: 签名（可选）并校验
+        id: sign
+        if: ${{ inputs.sign_with_local_key != false }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          UNSIGNED=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
+          cp "$UNSIGNED" dist/app-standard-release-unsigned.apk
+          mkdir -p .adapted-build
+          KS=.adapted-build/signing.keystore
+          if [ ! -f "$KS" ]; then
+            keytool -genkeypair -keystore "$KS" -storepass dsha-adapted -keypass dsha-adapted \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 36500 \
+              -dname "CN=DSHA Adapted Build, OU=DSHA, O=DSHA, C=CN"
+          fi
+          OUT=dist/dsha-0.2.0-rc2-adapted.apk
+          "$BT/apksigner" sign --ks "$KS" --ks-pass pass:dsha-adapted \
+            --ks-key-alias androiddebugkey --key-pass pass:dsha-adapted --out "$OUT" "$UNSIGNED"
+          "$BT/apksigner" verify --print-certs "$OUT" | head -6
+          "$BT/aapt2" dump badging "$OUT" | grep -E "^package:" || true
+          ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          echo "signed_apk=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: 与官方 APK 逐条目对比
+        run: |
+          set -euo pipefail
+          OUT=dist/dsha-0.2.0-rc2-adapted.apk
+          [ -f "$OUT" ] && { CAND="$OUT"; } || { CAND=$(ls dist/app-standard-release-unsigned.apk); }
+          python3 - "$CAND" /tmp/official.apk <<'PY' | tee /tmp/compare.txt
+          import subprocess, re, sys
+          def listing(apk):
+              out = subprocess.run(["unzip", "-lv", apk], capture_output=True, text=True).stdout
+              rows = {}
+              for line in out.splitlines()[3:]:
+                  m = re.match(r"^\s*(\d+)\s+(\S+)\s+(\d+)\s+(\d+)%\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+([0-9a-f]{8})\s+(.+)$", line)
+                  if m:
+                      rows[m.group(6).strip()] = (int(m.group(1)), m.group(5))
+              return rows
+          a, b = listing(sys.argv[2]), listing(sys.argv[1])
+          same = sum(1 for n in a if n in b and a[n] == b[n])
+          diff = [n for n in a if n in b and a[n] != b[n]]
+          only_a = [n for n in a if n not in b]
+          print(f"官方条目 {len(a)}，本产物 {len(b)}，字节一致 {same}")
+          for n in sorted(diff):
+              print("  差异:", n)
+          for n in sorted(only_a):
+              print("  仅官方:", n)
+          PY
+          {
+            echo ""
+            echo "### 与官方 APK 的一致性"
+            echo ""
+            echo '```'
+            cat /tmp/compare.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dsha-0.2.0-rc2-adapted
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
