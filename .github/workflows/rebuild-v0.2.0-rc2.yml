@@ -95,7 +95,7 @@ jobs:
           restore-keys: gradle-${{ runner.os }}-
 
       - name: 缓存本地签名密钥（保证多次构建签名一致、可覆盖安装）
-        if: ${{ inputs.sign_with_local_key != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.sign_with_local_key != false }}
         uses: actions/cache@v4
         with:
           path: .adapted-build
@@ -143,7 +143,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:assembleStandardRelease -Pdsha.unsignedPackage=true --console=plain --no-daemon
+          # 用 SDK 自带 aapt2：gradle/verification-metadata.xml 是在 Windows 上生成的，
+          # 只登记了 aapt2-*-windows.jar，Linux 上按默认走 Maven aapt2 会触发依赖校验失败。
+          AAPT2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          "$AAPT2" version
+          ./gradlew :app:assembleStandardRelease -Pdsha.unsignedPackage=true \
+            -Pandroid.aapt2FromMavenOverride="$AAPT2" --console=plain --no-daemon
 
       - name: 收集未签名产物
         run: |
@@ -156,7 +161,7 @@ jobs:
 
       - name: 签名（可选）并校验
         id: sign
-        if: ${{ inputs.sign_with_local_key != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.sign_with_local_key != false }}
         run: |
           set -euo pipefail
           BT="$ANDROID_HOME/build-tools/36.0.0"
