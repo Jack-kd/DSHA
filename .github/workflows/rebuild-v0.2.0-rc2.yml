@@ -74,11 +74,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-
       - name: 安装 SDK platform 37 + build-tools 36（standard 构建无需 NDK）
         run: |
           set -euo pipefail
+          # ubuntu-24.04 runner 已预装 Android SDK 与 sdkmanager（与仓库 ci-fast.yml 一致，不引入额外 action）
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          command -v sdkmanager || ls "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
