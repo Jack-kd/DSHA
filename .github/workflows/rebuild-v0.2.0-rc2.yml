@@ -77,14 +77,16 @@ jobs:
       - name: 安装 SDK platform 37 + build-tools 36（standard 构建无需 NDK）
         run: |
           set -euo pipefail
-          # ubuntu-24.04 runner 已预装 Android SDK 与 sdkmanager（与仓库 ci-fast.yml 一致，不引入额外 action）
-          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-          command -v sdkmanager || ls "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # ubuntu-24.04 runner 已预装 Android SDK；cmdline-tools 不在 PATH 上，需显式导出。
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          export ANDROID_HOME="$SDK_ROOT" ANDROID_SDK_ROOT="$SDK_ROOT"
+          export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$PATH"
+          echo "SDK_ROOT=$SDK_ROOT"; sdkmanager --version
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: 缓存 Gradle 依赖
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/wrapper
@@ -94,7 +96,7 @@ jobs:
 
       - name: 缓存本地签名密钥（保证多次构建签名一致、可覆盖安装）
         if: ${{ inputs.sign_with_local_key != false }}
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@v4
         with:
           path: .adapted-build
           key: dsha-adapted-keystore-v1
@@ -143,15 +145,23 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleStandardRelease -Pdsha.unsignedPackage=true --console=plain --no-daemon
 
+      - name: 收集未签名产物
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          UNSIGNED=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
+          cp "$UNSIGNED" dist/app-standard-release-unsigned.apk
+          ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          echo "unsigned=${UNSIGNED##*/} $(stat -c%s "$UNSIGNED") bytes"
+
       - name: 签名（可选）并校验
         id: sign
         if: ${{ inputs.sign_with_local_key != false }}
         run: |
           set -euo pipefail
-          mkdir -p dist
           BT="$ANDROID_HOME/build-tools/36.0.0"
-          UNSIGNED=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
-          cp "$UNSIGNED" dist/app-standard-release-unsigned.apk
+          UNSIGNED=dist/app-standard-release-unsigned.apk
+          ls -la "$UNSIGNED"
           mkdir -p .adapted-build
           KS=.adapted-build/signing.keystore
           if [ ! -f "$KS" ]; then
@@ -165,13 +175,13 @@ jobs:
           "$BT/apksigner" verify --print-certs "$OUT" | head -6
           "$BT/aapt2" dump badging "$OUT" | grep -E "^package:" || true
           ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
-          echo "signed_apk=$OUT" >> "$GITHUB_OUTPUT"
 
       - name: 与官方 APK 逐条目对比
         run: |
           set -euo pipefail
-          OUT=dist/dsha-0.2.0-rc2-adapted.apk
-          [ -f "$OUT" ] && { CAND="$OUT"; } || { CAND=$(ls dist/app-standard-release-unsigned.apk); }
+          CAND=dist/dsha-0.2.0-rc2-adapted.apk
+          [ -f "$CAND" ] || CAND=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
+          echo "对比候选: $CAND"
           python3 - "$CAND" /tmp/official.apk <<'PY' | tee /tmp/compare.txt
           import subprocess, re, sys
           def listing(apk):
