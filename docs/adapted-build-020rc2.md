@@ -85,3 +85,24 @@ workflow 工具里运行，分 4 个阶段并行/串行编排，结果结构化�
 
 > 说明：原仓库的 `ci-package.yml` / `release.yml` 是「手动触发 + 外部资产包 + 官方密钥」的
 > 正式发版链路，在 fork 里没有输入可跑，因此不会自动产出 APK；本工作流是给 fork 用的替代链路。
+
+### 已实测的 Actions 运行结果
+
+| 运行 | 触发 | 结果 | 耗时 |
+|---|---|---|---|
+| #6 | push | ✅ success | 4 min |
+| #7 | workflow_dispatch（手动） | ✅ success | 3 min |
+
+产物对比（Actions 上，与本地一致）：
+
+```
+官方条目 1248，本产物 1248，字节一致 1237
+  差异: META-INF/MANIFEST.MF, META-INF/version-control-info.textproto
+  差异: assets/runtime-descriptor.json
+  差异: lib/arm64-v8a/libprootloader32.so 等 6 个 proroot 系 .so
+```
+
+> 旁注：仓库自带的 `Source checks`（上游 ci-fast.yml）在 push 时仍会红，
+> 原因是 `tools/fixtures/cold-tools/ColdToolsBuild.java` 的格式检查
+> （`FORMAT_UNEXPECTED_SOURCE`），该文件在官方 v0.2.0-rc2 标签里就存在，
+> 与本适配工作流无关。它只做源码检查、不产出 APK。
