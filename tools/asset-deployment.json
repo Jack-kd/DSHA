@@ -36,6 +36,7 @@
     "managed-package-proofs.json",
     "managed-runtime-inputs.json",
     "office-fonts-patch.json",
+    "client-hmr-poll-patch.json",
     "offline-rootfs.version",
     "pdf-compat-patch.json",
     "persona-compat-patch.json",

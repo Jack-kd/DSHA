@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "dshVersion": "0.2.0-rc.2",
+  "module": "@deepseek-ai/dsh-client-hmr/lib/index.js",
+  "patches": [
+    {
+      "before": "const Config = z.object({ pollIntervalMs: z.number().step(1).min(1).default(500) });",
+      "after": "const Config = z.object({ pollIntervalMs: z.number().step(1).min(1).default(5000) }); /* DSHA_HMR_POLL_INTERVAL_V1 */"
+    }
+  ]
+}
