@@ -1,0 +1,51 @@
+# ============================================================================
+# 【自动】编译【已签名】DSHA v0.2.0-rc2（build170）
+#
+# 触发：推送到 main 且改动源码/构建配置（自动），或手动 Run workflow。
+# 产物：artifact `dsha-0.2.0-rc2-signed`（内含 dsha-0.2.0-rc2-signed.apk + SHA256SUMS.txt）
+#
+# 签名密钥优先级：仓库 secrets（DSHA_KEYSTORE_BASE64 等）> Actions 缓存中已生成的密钥
+#              > 本次自动生成（会随缓存持久化，保证多次构建签名一致、可覆盖安装）。
+# ============================================================================
+name: Build signed APK (v0.2.0-rc2)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tools/**'
+      - 'gradle/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/_build-020rc2-core.yml'
+      - '.github/workflows/rebuild-020rc2-signed.yml'
+  workflow_dispatch:
+    inputs:
+      official_apk_url:
+        description: 官方 v0.2.0-rc2 APK 地址（离线资产来源），留空用默认
+        required: false
+        default: ''
+        type: string
+      official_apk_sha256:
+        description: 该 APK 的 SHA-256，留空用默认
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-020rc2-signed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build-020rc2-core.yml
+    with:
+      sign: true
+      official_apk_url: ${{ inputs.official_apk_url }}
+      official_apk_sha256: ${{ inputs.official_apk_sha256 }}
+    secrets: inherit

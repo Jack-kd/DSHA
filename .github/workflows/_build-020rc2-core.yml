@@ -1,51 +1,64 @@
 # ============================================================================
-# 从本仓库编译出 v0.2.0-rc2（build170）—— GitHub Actions 适配工作流
+# 【可复用核心】编译 DSHA v0.2.0-rc2（build170）
 #
-# 为什么需要它：DSHA 的构建依赖一批离线固定输入（offline-rootfs.bin 源 rootfs、
-# dsh-runtime.bin、ubuntu-tools.bin 等），仓库不提交、原 CI 从开发者私有的 asset
-# bundle 恢复。本工作流改用「官方发布 APK 内嵌的离线资产」替代，因此：
+# 本文件不直接运行，由两个入口调用：
+#   .github/workflows/rebuild-020rc2-signed.yml    ← push 自动触发 →【已签名】APK
+#   .github/workflows/rebuild-020rc2-unsigned.yml  ← 仅手动触发   →【未签名】APK
+#
+# 为什么需要适配：DSHA 构建依赖的离线固定输入（offline-rootfs.bin 源 rootfs、
+# dsh-runtime.bin、ubuntu-tools.bin 等）仓库不提交、原 CI 从开发者私有 asset bundle
+# 恢复。本工作流改用「官方发布 APK 内嵌的离线资产」，因此：
 #   * 不需要任何私有资产包 URL；
-#   * 不需要官方签名密钥（缺省用自动生成并缓存的本地密钥签名，产物可安装）；
-#   * 逐条目校验产物与官方 APK 的一致性（除签名与记账字段）。
-#
-# 触发：手动（Actions → 本工作流 → Run workflow），或本文件/元数据脚本变更时自动。
+#   * 未签名版不需要密钥；签名版缺省用自动生成并缓存的密钥，也可用仓库 secrets 指定；
+#   * 逐条目对比官方 APK（除签名与记账字段）。
 # ============================================================================
-name: Build v0.2.0-rc2 (adapted)
+name: (core) build v0.2.0-rc2
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      official_apk_url:
-        description: 官方 v0.2.0-rc2 APK 地址（离线资产来源）
+      sign:
+        description: 是否签名；false 只产出未签名 APK
         required: false
-        default: https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk
+        default: false
+        type: boolean
+      official_apk_url:
+        description: 官方 APK 地址（离线资产来源），留空用默认
+        required: false
+        default: ''
         type: string
       official_apk_sha256:
-        description: 该 APK 的 SHA-256（完整性固定；留空则跳过校验）
+        description: 官方 APK 的 SHA-256，留空用默认
         required: false
-        default: 1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961
+        default: ''
         type: string
-      sign_with_local_key:
-        description: 用本地生成的（缓存）密钥签名，产出可安装 APK
+    secrets:
+      DSHA_KEYSTORE_BASE64:
         required: false
-        default: true
-        type: boolean
-  push:
-    paths:
-      - '.github/workflows/rebuild-v0.2.0-rc2.yml'
-      - 'tools/regenerate-input-metadata.py'
+      DSHA_KEYSTORE_PASSWORD:
+        required: false
+      DSHA_KEY_PASSWORD:
+        required: false
+      DSHA_KEY_ALIAS:
+        required: false
+    outputs:
+      artifact:
+        description: 上传的 artifact 名
+        value: ${{ jobs.build.outputs.artifact }}
+      apk_file:
+        description: APK 文件名
+        value: ${{ jobs.build.outputs.apk_file }}
 
 permissions:
   contents: read
-
-concurrency:
-  group: rebuild-020rc2-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    outputs:
+      artifact: ${{ steps.pkg.outputs.artifact }}
+      apk_file: ${{ steps.pkg.outputs.apk_file }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -63,6 +76,7 @@ jobs:
             echo "- 源码：\`$GITHUB_SHA\`"
             echo "- 版本：\`$(grep -o 'versionName \"[^\"]*\"' app/build.gradle | head -1)\`"
             echo "- 离线资产来源：官方发布 APK 内嵌资产"
+            echo "- 产物类型：${{ inputs.sign == true && '已签名' || '未签名' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
@@ -94,8 +108,8 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'app/build.gradle', 'settings.gradle', 'gradle.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: 缓存本地签名密钥（保证多次构建签名一致、可覆盖安装）
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.sign_with_local_key != false }}
+      - name: 缓存本地签名密钥（仅签名版；多次构建签名一致、可覆盖安装）
+        if: ${{ inputs.sign }}
         uses: actions/cache@v4
         with:
           path: .adapted-build
@@ -104,7 +118,7 @@ jobs:
       - name: 从官方 APK 恢复离线构建输入
         env:
           APK_URL: ${{ inputs.official_apk_url || 'https://github.com/DSH-APP/DSHA/releases/download/v0.2.0-rc2/dsha-0.2.0-rc2.apk' }}
-          APK_SHA: ${{ inputs.official_apk_sha256 }}
+          APK_SHA: ${{ inputs.official_apk_sha256 || '1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961' }}
         run: |
           set -euo pipefail
           curl -fL --retry 3 --retry-delay 5 -o /tmp/official.apk "$APK_URL"
@@ -155,37 +169,68 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           UNSIGNED=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
-          cp "$UNSIGNED" dist/app-standard-release-unsigned.apk
-          ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          cp "$UNSIGNED" dist/dsha-0.2.0-rc2-unsigned.apk
           echo "unsigned=${UNSIGNED##*/} $(stat -c%s "$UNSIGNED") bytes"
 
-      - name: 签名（可选）并校验
+      - name: 签名并校验（仅签名版）
         id: sign
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.sign_with_local_key != false }}
+        if: ${{ inputs.sign }}
+        env:
+          KEY_BASE64: ${{ secrets.DSHA_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.DSHA_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.DSHA_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DSHA_KEY_ALIAS }}
         run: |
           set -euo pipefail
           BT="$ANDROID_HOME/build-tools/36.0.0"
-          UNSIGNED=dist/app-standard-release-unsigned.apk
-          ls -la "$UNSIGNED"
+          UNSIGNED=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
           mkdir -p .adapted-build
           KS=.adapted-build/signing.keystore
-          if [ ! -f "$KS" ]; then
-            keytool -genkeypair -keystore "$KS" -storepass dsha-adapted -keypass dsha-adapted \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 36500 \
+          : "${KS_PASS:=dsha-adapted}"
+          : "${KEY_PASS:=dsha-adapted}"
+          : "${KEY_ALIAS:=androiddebugkey}"
+          if [ -n "${KEY_BASE64:-}" ]; then
+            printf '%s' "$KEY_BASE64" | base64 --decode > "$KS"
+            echo "签名密钥来源：仓库 secrets"
+          elif [ -f "$KS" ]; then
+            echo "签名密钥来源：Actions 缓存（此前已生成）"
+          else
+            keytool -genkeypair -keystore "$KS" -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 36500 \
               -dname "CN=DSHA Adapted Build, OU=DSHA, O=DSHA, C=CN"
+            echo "签名密钥来源：本次自动生成（随缓存持久化）"
           fi
-          OUT=dist/dsha-0.2.0-rc2-adapted.apk
-          "$BT/apksigner" sign --ks "$KS" --ks-pass pass:dsha-adapted \
-            --ks-key-alias androiddebugkey --key-pass pass:dsha-adapted --out "$OUT" "$UNSIGNED"
+          OUT=dist/dsha-0.2.0-rc2-signed.apk
+          "$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASS" --out "$OUT" "$UNSIGNED"
           "$BT/apksigner" verify --print-certs "$OUT" | head -6
           "$BT/aapt2" dump badging "$OUT" | grep -E "^package:" || true
-          ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          # 签名版 artifact 只留签名产物，与未签名版分开
+          rm -f dist/dsha-0.2.0-rc2-unsigned.apk
+          ls -la dist/
+
+      - name: 汇总产物与校验和
+        id: pkg
+        env:
+          SIGNED: ${{ inputs.sign }}
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f SHA256SUMS.txt
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          APK=$(ls *.apk | head -1)
+          echo "apk_file=$APK" >> "$GITHUB_OUTPUT"
+          if [ "$SIGNED" = "true" ]; then
+            echo "artifact=dsha-0.2.0-rc2-signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "artifact=dsha-0.2.0-rc2-unsigned" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: 与官方 APK 逐条目对比
         run: |
           set -euo pipefail
-          CAND=dist/dsha-0.2.0-rc2-adapted.apk
-          [ -f "$CAND" ] || CAND=$(ls app/build/outputs/apk/standard/release/*-unsigned.apk | head -1)
+          CAND=$(ls dist/*.apk | head -1)
           echo "对比候选: $CAND"
           python3 - "$CAND" /tmp/official.apk <<'PY' | tee /tmp/compare.txt
           import subprocess, re, sys
@@ -218,7 +263,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: dsha-0.2.0-rc2-adapted
+          name: ${{ steps.pkg.outputs.artifact }}
           path: |
             dist/*.apk
             dist/SHA256SUMS.txt

@@ -1,0 +1,36 @@
+# ============================================================================
+# 【手动】编译【未签名】DSHA v0.2.0-rc2（build170）
+#
+# 触发：仅手动（Actions → 本工作流 → Run workflow），不会因 push 自动运行。
+# 产物：artifact `dsha-0.2.0-rc2-unsigned`（内含 dsha-0.2.0-rc2-unsigned.apk + SHA256SUMS.txt）
+# ============================================================================
+name: Build unsigned APK (v0.2.0-rc2)
+
+on:
+  workflow_dispatch:
+    inputs:
+      official_apk_url:
+        description: 官方 v0.2.0-rc2 APK 地址（离线资产来源），留空用默认
+        required: false
+        default: ''
+        type: string
+      official_apk_sha256:
+        description: 该 APK 的 SHA-256，留空用默认
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-020rc2-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build-020rc2-core.yml
+    with:
+      sign: false
+      official_apk_url: ${{ inputs.official_apk_url }}
+      official_apk_sha256: ${{ inputs.official_apk_sha256 }}
