@@ -30,6 +30,40 @@ public final class DiagnosticActivity extends AppCompatActivity {
           uri -> {
             if (uri != null) logs.export(uri);
           });
+  /** 卡顿诊断导出：内容由 LagDiagnostics 采集，此处只负责落盘。 */
+  private String pendingLagReport;
+  private final ActivityResultLauncher<String> lagExporter =
+      registerForActivityResult(
+          new ActivityResultContracts.CreateDocument("text/plain"),
+          uri -> {
+            if (uri == null || pendingLagReport == null) return;
+            final String report = pendingLagReport;
+            new Thread(
+                    () -> {
+                      String message;
+                      try (java.io.OutputStream stream =
+                          getContentResolver().openOutputStream(uri, "wt")) {
+                        if (stream == null)
+                          throw new java.io.IOException(
+                              com.deepseekharness.app.util.UiText.text("无法写入所选位置"));
+                        stream.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        message = com.deepseekharness.app.util.UiText.text("卡顿诊断已导出");
+                      } catch (Exception error) {
+                        message =
+                            com.deepseekharness.app.util.UiText.format(
+                                "导出失败：%s", error.getClass().getSimpleName());
+                      }
+                      pendingLagReport = null;
+                      String done = message;
+                      runOnUiThread(
+                          () ->
+                              Toast.makeText(getApplicationContext(), done, Toast.LENGTH_LONG)
+                                  .show());
+                    },
+                    "lag-export")
+                .start();
+          });
+
   private final ActivityResultLauncher<String> exporter =
       registerForActivityResult(
           new ActivityResultContracts.CreateDocument("text/plain"),
@@ -168,6 +202,7 @@ public final class DiagnosticActivity extends AppCompatActivity {
                     .show();
               }
             });
+    findViewById(R.id.diagnostic_lag).setOnClickListener(v -> captureLag());
     findViewById(R.id.diagnostic_export)
         .setOnClickListener(
             v -> {
@@ -218,7 +253,8 @@ public final class DiagnosticActivity extends AppCompatActivity {
                 R.id.diagnostic_refresh,
                 R.id.diagnostic_repair,
                 R.id.diagnostic_copy,
-                R.id.diagnostic_export
+                R.id.diagnostic_export,
+                R.id.diagnostic_lag
               }) findViewById(id).setEnabled(!busy);
         });
     if (saved == null) {
@@ -271,6 +307,83 @@ public final class DiagnosticActivity extends AppCompatActivity {
                   });
             },
             "diagnostic-history")
+        .start();
+  }
+
+  /**
+   * 卡顿诊断：后台采集（默认 30 秒）→ 完成后弹保存框。
+   *
+   * <p>采集期间禁用按钮并显示进度；采集在后台线程进行，不阻塞界面。
+   * 卡顿点可能隐藏，因此报告含宿主/容器/HTTP/配置四个层面的原始数据。
+   */
+  private void captureLag() {
+    final android.widget.Button button = findViewById(R.id.diagnostic_lag);
+    final android.widget.TextView status = findViewById(R.id.diagnostic_lag_status);
+    final int seconds = 30;
+    button.setEnabled(false);
+    status.setText(com.deepseekharness.app.util.UiText.text("正在采集卡顿数据（建议 30 秒）…"));
+    final long startedAt = System.currentTimeMillis();
+    new Thread(
+            () -> {
+              String text;
+              String note;
+              boolean ok;
+              try {
+                var snapshot =
+                    com.deepseekharness.app.core.LagDiagnostics.collect(
+                        getApplicationContext(), seconds);
+                text = snapshot.text();
+                note = snapshot.probeNote();
+                ok = true;
+              } catch (Exception error) {
+                ok = false;
+                text =
+                    com.deepseekharness.app.util.UiText.format(
+                        "卡顿诊断采集失败：%s",
+                        com.deepseekharness.app.util.SensitiveData.redact(
+                            String.valueOf(error.getMessage())));
+                note = "";
+              }
+              final String report = text;
+              final String probeNote = note;
+              final boolean collected = ok;
+              runOnUiThread(
+                  () -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    button.setEnabled(true);
+                    long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
+                    status.setText(
+                        collected
+                            ? "采集完成（" + elapsed + " 秒）· " + probeNote
+                            : com.deepseekharness.app.util.SensitiveData.redact(report));
+                    if (!collected) {
+                      Toast.makeText(
+                              getApplicationContext(),
+                              com.deepseekharness.app.util.SensitiveData.redact(report),
+                              Toast.LENGTH_LONG)
+                          .show();
+                      return;
+                    }
+                    pendingLagReport = report;
+                    try {
+                      lagExporter.launch(
+                          "DSHA-lag-"
+                              + new java.text.SimpleDateFormat(
+                                      "yyyyMMdd-HHmmss", java.util.Locale.ROOT)
+                                  .format(new java.util.Date())
+                              + ".txt");
+                    } catch (RuntimeException error) {
+                      pendingLagReport = null;
+                      Toast.makeText(
+                              getApplicationContext(),
+                              com.deepseekharness.app.util.UiText.text(
+                                  "无法打开保存位置，可先复制诊断报告"),
+                              Toast.LENGTH_LONG)
+                          .show();
+                    }
+                  });
+            },
+            "lag-capture")
         .start();
   }
 

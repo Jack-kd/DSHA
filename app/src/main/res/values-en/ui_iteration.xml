@@ -136,6 +136,12 @@
     <string name="ui2_management">Management</string>
     <string name="ui2_rollback">Compatible runtime rollback</string>
     <string name="ui2_rollback_sub">Switch only after isolated verification</string>
+    <string name="ui144_lag_probe">Capture lag diagnostics</string>
+    <string name="ui144_lag_probe_desc">Records event-loop delay, disk calls, process load and request latency for analysis</string>
+    <string name="ui144_lag_running">Capturing lag data (about 30 seconds)…</string>
+    <string name="ui144_lag_done">Lag diagnostics exported</string>
+    <string name="ui144_lag_failed">Lag diagnostics failed: %s</string>
+    <string name="ui144_lag_progress">Capturing lag data… %d s</string>
     <string name="ui2_diagnostics_intro">Inspect components, storage and services and generate a redacted report.</string>
 
 

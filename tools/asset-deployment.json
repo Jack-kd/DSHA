@@ -68,6 +68,7 @@
     "runtime-trial-plugin.js",
     "session-interaction-patch.json",
     "startup-observer.cjs",
+    "lag-probe.cjs",
     "subagent-navigation-patch.json",
     "tooltip-entry-patch.json",
     "tooltip-interaction-patch.json",

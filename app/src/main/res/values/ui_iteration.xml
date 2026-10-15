@@ -136,6 +136,12 @@
     <string name="ui2_management">管理</string>
     <string name="ui2_rollback">兼容运行时回退</string>
     <string name="ui2_rollback_sub">通过隔离试运行后再切换</string>
+    <string name="ui144_lag_probe">采集卡顿诊断</string>
+    <string name="ui144_lag_probe_desc">记录事件循环延迟、磁盘调用、进程负载与接口耗时，导出后可分析卡顿原因</string>
+    <string name="ui144_lag_running">正在采集卡顿数据（建议 30 秒）…</string>
+    <string name="ui144_lag_done">卡顿诊断已导出</string>
+    <string name="ui144_lag_failed">卡顿诊断采集失败：%s</string>
+    <string name="ui144_lag_progress">正在采集卡顿数据… %d 秒</string>
     <string name="ui2_diagnostics_intro">检查组件、存储与服务，生成脱敏报告。</string>
 
 

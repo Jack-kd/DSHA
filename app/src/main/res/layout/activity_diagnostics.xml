@@ -48,6 +48,8 @@
       <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/ui2_troubleshooting" android:textSize="11sp" android:textColor="@color/text" android:includeFontPadding="false" android:layout_marginTop="10dp" android:layout_marginBottom="8dp" />
       <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="16dp" android:layout_marginBottom="12dp">
         <Button android:id="@+id/diagnostic_repair" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="@string/ui_m0060" />
+        <Button android:id="@+id/diagnostic_lag" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/ui144_lag_probe" />
+        <TextView android:id="@+id/diagnostic_lag_status" style="@style/DshaText.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="" />
         <Button android:id="@+id/diagnostic_plugins" style="@style/Widget.DSHA.TextButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="@string/ui_m0013" />
       </LinearLayout>
       <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/ui2_reproduction" android:textSize="11sp" android:textColor="@color/text" android:includeFontPadding="false" android:layout_marginTop="10dp" android:layout_marginBottom="8dp" />
