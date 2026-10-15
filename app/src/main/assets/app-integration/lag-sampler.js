@@ -18,6 +18,7 @@
  */
 import { readFileSync, writeFileSync, renameSync, existsSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import * as pathUtil from 'node:path';
 
 // ESM 里没有裸 require；统一用 createRequire 获取 CJS 形态的内置模块
 // （node:inspector / node:fs 本体 / node:v8 / node:perf_hooks 都要通过它拿）。
@@ -87,6 +88,90 @@ function startLagProbe(intervalMs, sink) {
   timer = setTimeout(tick, intervalMs);
   if (timer.unref) timer.unref();
   return { stop() { stopped = true; if (timer) clearTimeout(timer); } };
+}
+
+
+/**
+ * 客户端 bundle 体积分析 —— 定位「点设置/工作区为什么要等」。
+ *
+ * 背景（实测发现）：dsh 把每个客户端插件编成独立的 client.js，由 HTTP 逐个提供，
+ * 且【不做压缩】（serveBundle 直接 res.end，无 gzip/br）。浏览器进 Web 要下载并
+ * 解析全部 bundle；其中 dsh-client-ui-settings-account 达 5.03MB，且内含 8 张
+ * base64 PNG 欢迎图（合计 3.63MB）—— 点「设置」必然要下载解析它，这就是卡顿源之一。
+ *
+ * 本函数把这些包的体积、内嵌 base64 占比、以及 HTTP 服务端是否压缩记录下来，
+ * 供报告直接定位「哪个包、哪类内容」造成加载慢。
+ */
+function analyzeClientBundles() {
+  const out = { bundles: [], totals: {}, compressedTransport: null, findings: [] };
+  // 用 fs 模块【本体】（CJS 引用）而不是 ESM import 绑定：patchFs 替换的是本体上的
+  // 方法，ESM 绑定是否同步取决于 syncBuiltinESMExports；直接用本体可避免这种歧义。
+  const F = fsModule || cjsRequire('node:fs');
+  if (!fsModule) fsModule = F;
+  const roots = [];
+  const candidates = [];
+  try { candidates.push(pathUtil.dirname(cjsRequire.resolve('@deepseek-ai/dsh/package.json'))); } catch {}
+  try {
+    const entry = process.argv[1] || '';
+    const at = entry.lastIndexOf('/node_modules/');
+    if (at > 0) candidates.push(entry.slice(0, at));
+  } catch {}
+  try { candidates.push(pathUtil.join(pathUtil.dirname(pathUtil.dirname(process.execPath)), 'lib', 'node_modules')); } catch {}
+  try {
+    // dsh 也可能从当前工作目录的 node_modules 解析（pnpm link 场景）
+    candidates.push(pathUtil.join(process.cwd(), 'node_modules'));
+  } catch {}
+  for (const base of candidates) {
+    try {
+      const dsh = base.endsWith('@deepseek-ai/dsh') ? base : pathUtil.join(base, '@deepseek-ai/dsh');
+      if (!F.existsSync(pathUtil.join(dsh, 'package.json'))) continue;
+      const scoped = pathUtil.join(dsh, 'node_modules', '@deepseek-ai');
+      if (F.existsSync(scoped)) roots.push(scoped);
+    } catch {}
+  }
+  const seen = new Set();
+  for (const root of roots) {
+    if (seen.has(root)) continue; seen.add(root);
+    let names = [];
+    try { names = F.readdirSync(root); } catch { continue; }
+    let totalBytes = 0, count = 0;
+    for (const name of names) {
+      const file = pathUtil.join(root, name, 'lib', 'client.js');
+      let size = 0;
+      try { size = F.statSync(file).size; } catch { continue; }
+      totalBytes += size;
+      let embedded = 0, images = 0;
+      try {
+        const text = F.readFileSync(file, 'utf8');
+        const matches = text.match(/data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+/g) || [];
+        images = matches.length;
+        for (const m of matches) embedded += Math.round(m.length * 3 / 4);
+      } catch {}
+      count++;
+      out.bundles.push({ name, bytes: size, embeddedImageBytes: embedded, inlineImageCount: images,
+                         executableBytes: size - embedded });
+    }
+    out.totals[root] = { bundleCount: count, totalBytes, totalMiB: +(totalBytes / 1048576).toFixed(2) };
+  }
+  out.bundles.sort((a, b) => b.bytes - a.bytes);
+  out.rootsProbed = roots;
+  out.bundles = out.bundles.slice(0, 30);
+
+  const grand = Object.values(out.totals).reduce((a, t) => a + (t.totalBytes || 0), 0) || out.bundles.reduce((a, b) => a + b.bytes, 0);
+  const grandImg = out.bundles.reduce((a, b) => a + b.embeddedImageBytes, 0);
+  out.grandTotalBytes = grand;
+  out.grandTotalMiB = +(grand / 1048576).toFixed(2);
+  out.embeddedImageMiB = +(grandImg / 1048576).toFixed(2);
+  out.embeddedImagePercent = grand ? +((grandImg / grand) * 100).toFixed(1) : 0;
+  out.biggest = out.bundles[0] ? { name: out.bundles[0].name, MiB: +(out.bundles[0].bytes / 1048576).toFixed(2) } : null;
+
+  if (out.bundles[0] && out.bundles[0].embeddedImageBytes > 1048576)
+    out.findings.push(`最大包 ${out.bundles[0].name} 有 ${(out.bundles[0].embeddedImageBytes/1048576).toFixed(2)}MB 内嵌 base64 图片（点相关页面要下载解析这些）`);
+  if (out.embeddedImagePercent > 20)
+    out.findings.push(`内嵌 base64 图片占客户端 bundle 总量的 ${out.embeddedImagePercent}%（可外置为文件，避免 JS 解析开销）`);
+  if (out.totals[roots[0]] && out.totals[roots[0]].totalMiB > 8)
+    out.findings.push(`客户端 bundle 合计 ${out.totals[roots[0]].totalMiB}MiB，且服务端未压缩传输（serveBundle 无 gzip/br）`);
+  return out;
 }
 
 function procSelf(label) {
@@ -289,6 +374,7 @@ async function measure(seconds, context) {
     cpuProfile: profileSummary,
     cpuProfileError: profileError || null,
     fs: { byOperation: fsDelta },
+    clientBundles: analyzeClientBundles(),
     proc: { before, after },
     cpu: { windowSeconds: secs, userSeconds: +dU.toFixed(2), systemSeconds: +dS.toFixed(2),
            cpuPercent: +(((dU + dS) / secs) * 100).toFixed(2) },
@@ -306,6 +392,10 @@ async function measure(seconds, context) {
     if (profileSummary.byModule[0])
       notes.push(`最烧 CPU 的模块：${profileSummary.byModule[0].module} ${profileSummary.byModule[0].selfMs}ms`);
   } else if (profileError) notes.push(`CPU 剖析不可用：${profileError}`);
+  if (result.clientBundles && result.clientBundles.biggest)
+    notes.push(`客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
+  if (result.clientBundles && result.clientBundles.findings.length)
+    for (const f of result.clientBundles.findings) notes.push('发现：' + f);
   if (fsDelta.length) notes.push(`fs 最重：` + fsDelta.slice(0, 3).map((r) => `${r.op} ${r.count}次/${r.ms}ms`).join('、'));
   notes.push(`窗口 CPU ${result.cpu.cpuPercent}%（user ${result.cpu.userSeconds}s / sys ${result.cpu.systemSeconds}s）`);
   if (result.cpu.systemSeconds > result.cpu.userSeconds * 2 && result.cpu.systemSeconds > 0.5)
