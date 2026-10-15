@@ -30,8 +30,14 @@ public final class LagDiagnostics {
   /** 采集结果：可导出文本 + 原始探针 JSON。 */
   public record Snapshot(String text, String rawJson, boolean probeRan, String probeNote) {}
 
-  private static final String PROBE_PATH = "root/.dsh/lag-probe.cjs";
-  private static final String PROBE_OUT = "/root/.dsha-lag-probe.json";
+  /** 宿主写请求、dsh 进程内采样器读取（相对 rootfs 的路径）。 */
+  private static final String REQUEST_PATH = "root/.dsha-lag-request.json";
+  /** 采样器写结果（相对 rootfs 的路径）。 */
+  private static final String RESULT_PATH = "root/.dsha-lag-result.json";
+  /** 采样器模块（由 app-integration 插件在 dsh 进程内启动）。 */
+  private static final String SAMPLER_PATH = "root/dsha-app-integration/lag-sampler.js";
+  /** 等待结果的轮询上限（秒数 + 余量）。 */
+  private static final long RESULT_WAIT_MARGIN_MS = 20_000;
 
   /**
    * 运行完整采集。
@@ -159,52 +165,66 @@ public final class LagDiagnostics {
     }
   }
 
-  /** 在 guest 内运行探针并取回 JSON。 */
+  /**
+   * 通过「请求文件 → dsh 进程内采样器采集 → 结果文件」协议取回数据。
+   *
+   * <p>不能用外部进程：卡顿是 dsh 自己的事件循环被阻塞，外部进程测不到。
+   * 因此采样器作为 app-integration 插件挂在 dsh 进程内，宿主只负责写请求、
+   * 等结果、读结果。
+   */
   private static Snapshot runProbe(Context app, HarnessController controller, int seconds) {
-    String note;
     try {
       var proot = controller.proot();
-      if (!proot.isEnvironmentReady()) return new Snapshot("", "", false, "环境未就绪，探针无法运行");
+      if (!proot.isEnvironmentReady()) return new Snapshot("", "", false, "环境未就绪，无法采集");
       File rootfs = proot.getRootfsDir();
-      File probe = new File(rootfs, PROBE_PATH);
-      if (!probe.isFile()) {
-        return new Snapshot("", "", false, "探针脚本缺失：" + PROBE_PATH + "（需重新安装受管资产）");
-      }
-      int secs = Math.max(5, Math.min(300, seconds));
-      String output;
-      try {
-        output = com.deepseekharness.app.util.GuestCommandOutcome.requireCompleted(
-            proot.execAndReadWithProotResult(
-                "node --no-warnings " + PROBE_PATH + " " + secs, (secs + 60) * 1000L),
-            "LAG_PROBE");
-      } catch (Exception error) {
+      File sampler = new File(rootfs, SAMPLER_PATH);
+      if (!sampler.isFile())
         return new Snapshot("", "", false,
-            "探针执行失败：" + SensitiveData.redact(String.valueOf(error.getMessage())));
+            "进程内采样器缺失（" + SAMPLER_PATH + "）；需重新安装受管资产并重启 Web");
+      if (!controller.isWebRunning())
+        return new Snapshot("", "", false, "Web 未运行：请先启动 DSHA，卡顿采样需要在运行中的 Web 进程内进行");
+
+      int secs = Math.max(5, Math.min(300, seconds));
+      String nonce = Long.toHexString(System.nanoTime()) + "-" + Long.toHexString(System.currentTimeMillis());
+      File request = new File(rootfs, REQUEST_PATH);
+      File result = new File(rootfs, RESULT_PATH);
+
+      // 清掉旧结果，避免读到上一次的数据
+      try { result.delete(); } catch (Exception ignored) {}
+      String payload = "{\"nonce\":\"" + nonce + "\",\"seconds\":" + secs + "}\n";
+      try (java.io.OutputStream out = new java.io.FileOutputStream(request)) {
+        out.write(payload.getBytes(StandardCharsets.UTF_8));
       }
-      // 探针把 JSON 写到 /root/.dsha-lag-probe.json 同时打到 stdout；优先读文件（更完整）。
+
+      long deadline = System.currentTimeMillis() + secs * 1000L + RESULT_WAIT_MARGIN_MS;
       String json = "";
-      File out = new File(rootfs, PROBE_OUT.substring(1));
-      if (out.isFile()) {
-        try (java.io.InputStream in = new java.io.FileInputStream(out)) {
-          byte[] buffer = new byte[4 * 1024 * 1024];
-          int read = in.read(buffer);
-          if (read > 0) json = new String(buffer, 0, read, StandardCharsets.UTF_8);
-        } catch (Exception ignored) {
-          // 回落到 stdout。
+      while (System.currentTimeMillis() < deadline) {
+        if (result.isFile()) {
+          try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(result.toPath());
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            // 确认是我们这次请求的结果（采样器写回 nonce）
+            if (text.contains("\"" + nonce + "\"")) { json = text; break; }
+          } catch (Exception ignored) {
+            // 文件可能正在原子替换，稍后重试。
+          }
+        }
+        try { Thread.sleep(500); } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return new Snapshot("", "", false, "等待采集结果被中断");
         }
       }
-      if (json.isEmpty()) {
-        int start = output.indexOf('{');
-        int end = output.lastIndexOf('}');
-        if (start >= 0 && end > start) json = output.substring(start, end + 1);
-      }
+      try { request.delete(); } catch (Exception ignored) {}
+
       if (json.isEmpty())
-        return new Snapshot("", "", false, "探针运行完成但未取到 JSON 输出");
+        return new Snapshot("", "", false,
+            "等待 " + secs + " 秒未取到结果。可能原因：采样器未随本次 Web 启动加载（需重启 Web），"
+                + "或 Web 进程未在运行。");
       return new Snapshot("", SensitiveData.redact(json), true,
-          "采样 " + secs + " 秒；原始 JSON " + json.length() + " 字节");
+          "进程内采样 " + secs + " 秒；原始 JSON " + json.length() + " 字节");
     } catch (Exception error) {
-      note = "探针准备失败：" + SensitiveData.redact(String.valueOf(error.getMessage()));
-      return new Snapshot("", "", false, note);
+      return new Snapshot("", "", false,
+          "采集失败：" + SensitiveData.redact(String.valueOf(error.getMessage())));
     }
   }
 

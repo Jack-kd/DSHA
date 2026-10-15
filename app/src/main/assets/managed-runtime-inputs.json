@@ -73,11 +73,6 @@
       "executable": false
     },
     {
-      "asset": "lag-probe.cjs",
-      "target": "root/.dsh/lag-probe.cjs",
-      "executable": false
-    },
-    {
       "asset": "device-shell-policy.py",
       "target": "root/.dsh/device-shell-policy.py",
       "executable": false
@@ -105,6 +100,11 @@
     {
       "asset": "app-integration/index.js",
       "target": "root/dsha-app-integration/index.js",
+      "executable": false
+    },
+    {
+      "asset": "app-integration/lag-sampler.js",
+      "target": "root/dsha-app-integration/lag-sampler.js",
       "executable": false
     },
     {
@@ -366,8 +366,7 @@
     "ubuntu-tools.bin",
     "ubuntu-tools.layout",
     "ubuntu-tools.manifest.json",
-    "workspace-directory-policy-patch.json",
-    "lag-probe.cjs"
+    "workspace-directory-policy-patch.json"
   ],
   "assetTrees": [
     "web-integration",

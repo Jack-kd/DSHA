@@ -34,7 +34,6 @@ public final class ManagedRuntimeLayout {
           "plugin-semver.cjs",
           "register-builtin-plugins.py",
           "startup-observer.cjs",
-          "lag-probe.cjs",
           "device-shell-policy.py",
           "adb-shell.py",
           "adb-pair.py",
