@@ -42,8 +42,33 @@ const quantiles = (sorted) => {
   };
 };
 
-const ring = { lag: [] };
-const pushLag = (v) => { ring.lag.push(v); if (ring.lag.length > 6000) ring.lag.shift(); };
+/**
+ * 常驻环缓冲：不停记录最近约 2 分钟（6000 样本 × 20ms）的事件循环延迟。
+ *
+ * 为什么带时间戳：用户的卡顿可能「采集前就发生了」（例如点了采集但工作区要加载
+ * 90 秒，采样窗口结束时卡顿还没跑完；或者先卡完才想起点采集）。带时间戳后，
+ * 报告可以把「采集前」的历史一并还原成时间线，仍能定位到那次长卡顿。
+ */
+const ring = { lag: [], stamps: [], capacity: 6000 };
+const pushLag = (v) => {
+  ring.lag.push(v);
+  ring.stamps.push(Date.now());
+  if (ring.lag.length > ring.capacity) { ring.lag.shift(); ring.stamps.shift(); }
+};
+/** 把环缓冲还原成 {at, ms} 时间线（供报告展示「采集前」的卡顿）。 */
+function ringTimeline(limit) {
+  const out = [];
+  const start = Math.max(0, ring.lag.length - (limit || ring.lag.length));
+  for (let i = start; i < ring.lag.length; i++) out.push({ ms: +ring.lag[i].toFixed(1), at: new Date(ring.stamps[i]).toISOString() });
+  return out;
+}
+/** 环缓冲里的显著卡顿（用于回答「采集前发生的卡顿」）。 */
+function ringSpikes(thresholdMs) {
+  const out = [];
+  for (let i = 0; i < ring.lag.length; i++)
+    if (ring.lag[i] > thresholdMs) out.push({ ms: +ring.lag[i].toFixed(1), at: new Date(ring.stamps[i]).toISOString() });
+  return out.slice(-40);
+}
 
 /** fs 累计计数（常驻轻量），用于窗口差值。fs 模块通过 createRequire 获取本体。 */
 const fsCounters = new Map();
@@ -287,6 +312,7 @@ function summarizeProfile(profile) {
 async function measure(seconds, context) {
   const samples = [], worst = [];
   const startedAt = Date.now();
+  const windowStartIso = new Date(startedAt).toISOString();
   const probe = startLagProbe(20, (lag) => {
     samples.push(lag);
     if (worst.length < 12 || lag > worst[worst.length - 1].ms) {
@@ -369,7 +395,17 @@ async function measure(seconds, context) {
         '500+': samples.filter((v) => v >= 500).length,
       },
       worst,
+      windowStart: windowStartIso,
+      windowEnd: new Date().toISOString(),
       sinceStart: { samples: ring.lag.length, summary: quantiles(ring.lag.slice().sort((a, b) => a - b)) },
+    },
+    // 「采集前」历史：环缓冲一直在跑，所以即使卡顿发生在点采集之前也能看到。
+    preWindow: {
+      note: '常驻环缓冲记录最近约 2 分钟；用于捕捉「点采集之前」或「采样窗口结束后」仍在发生的卡顿。',
+      spanSeconds: +((ring.lag.length * 20) / 1000).toFixed(0),
+      summary: quantiles(ring.lag.slice().sort((a, b) => a - b)),
+      significantSpikes: ringSpikes(100),
+      timeline: ringTimeline(2000),
     },
     cpuProfile: profileSummary,
     cpuProfileError: profileError || null,

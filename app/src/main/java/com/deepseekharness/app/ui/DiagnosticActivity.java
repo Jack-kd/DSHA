@@ -363,12 +363,48 @@ public final class DiagnosticActivity extends AppCompatActivity {
    *
    * <p>同时保留「另存为」入口（按钮下方状态行可点），供需要自选位置的用户使用。
    */
+  /**
+   * 让用户选采样时长。卡顿可能持续很久（例如工作区加载 90 秒），30 秒窗口不够，
+   * 因此提供 30/60/120/300 秒档位，并把选择记住。
+   */
+  private int chooseLagSeconds() {
+    final int[] options = {30, 60, 120, 300};
+    final String[] labels = {
+      "30 秒（快速）", "60 秒（推荐，可覆盖较慢加载）", "120 秒（长时间卡顿）", "300 秒（最久，5 分钟）"
+    };
+    android.content.SharedPreferences prefs = getSharedPreferences("dsha_lag_exports", 0);
+    int saved = prefs.getInt("seconds", 60);
+    int checked = 1;
+    for (int i = 0; i < options.length; i++) if (options[i] == saved) checked = i;
+    final int[] chosen = {options[checked]};
+    new androidx.appcompat.app.AlertDialog.Builder(this)
+        .setTitle(com.deepseekharness.app.util.UiText.text("采样时长"))
+        .setSingleChoiceItems(
+            labels,
+            checked,
+            (dialog, which) -> chosen[0] = options[which])
+        .setPositiveButton(
+            com.deepseekharness.app.util.UiText.text("开始采集"),
+            (dialog, which) -> {
+              prefs.edit().putInt("seconds", chosen[0]).apply();
+              runLagCapture(chosen[0]);
+            })
+        .setNegativeButton(com.deepseekharness.app.util.UiText.text("取消"), null)
+        .show();
+    return -1; // 真正的采集在对话框回调里发起
+  }
+
   private void captureLag() {
+    // 入口只负责弹「采样时长」选择；真正的采集在 runLagCapture 里执行。
+    chooseLagSeconds();
+  }
+
+  /** 实际执行采集（由时长选择对话框回调调用）。 */
+  private void runLagCapture(final int seconds) {
     final android.widget.Button button = findViewById(R.id.diagnostic_lag);
     final android.widget.TextView status = findViewById(R.id.diagnostic_lag_status);
-    final int seconds = 30;
     button.setEnabled(false);
-    status.setText(com.deepseekharness.app.util.UiText.text("正在采集卡顿数据（建议 30 秒）…"));
+    status.setText("正在采集卡顿数据（" + seconds + " 秒）…\n采集期间可以离开本页去复现卡顿，结果会自动保存。");
     final long startedAt = System.currentTimeMillis();
     new Thread(
             () -> {

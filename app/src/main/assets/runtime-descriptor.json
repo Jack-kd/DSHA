@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "runtimeId": "4e5f4a2e51f3bdce5697cacfcb736015385d100d279075aefeee9f990879fc1b",
+  "runtimeId": "a365fe5738f939dd84e41ece11b53efb5e7f7f32f4a5c869ddd17a18d9dc39e5",
   "baseVersion": "10",
   "dshVersion": "0.2.0-rc.2",
   "launcherContract": "DSHA_ARM64_V2",
@@ -305,7 +305,7 @@
     "app-integration/client.js": "46e694ddf7edd4bb202c7be6456c65f7f7f52979adf36562ff955600a5aa43f1",
     "app-integration/cordis.patch.yml": "9ebf20f8521b2bf357dc568b8998d0d505be0dd7c0e941d74941ae9690300f09",
     "app-integration/index.js": "1db3ad0fece1cb5bc9dd26f223d7752754148da33774b5256507f62db98dfc3c",
-    "app-integration/lag-sampler.js": "d661a9a118ffccf0bbaaf0effbadd1ba2ea3d87bacef3b9a8132bdbaaa772724",
+    "app-integration/lag-sampler.js": "d64fbe7a54b2c2330fd59b77fefdbde4d11a742d319d7a4e256235aef7284b9b",
     "app-integration/package.json": "31bc987cab8e813556852f6b4eb493b28ddd1e16f0243278953400a363b6f57b",
     "app-integration/runtime-plugins.js": "0ec4632cd54a3868f5c37f3de19ca338f0630cfb18afe6e07f5d01bcbb3653aa",
     "backup-plugin-graph.py": "2014545c9491327ce0095bb3d2735a76ca8ccae3ef1256d9f558718784e2bb63",
