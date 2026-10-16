@@ -1,14 +1,10 @@
 import { writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { confirmedIdle } from './activity.js';
 import { runtimePlugins } from './runtime-plugins.js';
-import { startLagSampler } from './lag-sampler.js';
 export const inject = ['agents', 'sessions', 'sessionProjections'];
 export function apply(ctx) {
   const generation = process.env.DSHA_WEB_GENERATION;
   if (!generation) return;
-  // 进程内卡顿采样器：常驻轻量探测，收到宿主请求时做完整采集。
-  // 放在最前，保证即使后面的活动上报出错也已经开始采样。
-  startLagSampler(ctx);
   const file = '/root/.dsha-web-activity.json';
   const temp = file + '.' + process.pid + '.tmp';
   let dynamicRunner;

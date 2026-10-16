@@ -108,11 +108,6 @@
       "executable": false
     },
     {
-      "asset": "app-integration/lag-sampler.js",
-      "target": "root/dsha-app-integration/lag-sampler.js",
-      "executable": false
-    },
-    {
       "asset": "app-integration/activity.js",
       "target": "root/dsha-app-integration/activity.js",
       "executable": false
