@@ -284,6 +284,24 @@ public final class DiagnosticActivity extends AppCompatActivity {
                 R.id.diagnostic_lag
               }) findViewById(id).setEnabled(!busy);
         });
+    // 恢复「正在采集」状态：用户点开始后会离开本页去复现卡顿，回来后（可能已重建
+    // Activity）按钮必须仍然是「停止采集并保存」，否则会被误当成新的开始。
+    try {
+      String active = getSharedPreferences(LAG_PREFS, 0).getString("active_nonce", "");
+      if (!active.isEmpty()) {
+        lagNonce = active;
+        // 会话对象只需要 nonce 与 rootfs；从当前环境重建，避免依赖内存字段。
+        lagSession =
+            com.deepseekharness.app.core.LagDiagnostics.resumeSession(getApplicationContext(), active);
+        ((android.widget.Button) findViewById(R.id.diagnostic_lag))
+            .setText(com.deepseekharness.app.util.UiText.text("停止采集并保存"));
+        ((TextView) findViewById(R.id.diagnostic_lag_status))
+            .setText(
+                com.deepseekharness.app.util.UiText.text(
+                    "采集中…去工作台复现卡顿，回来后点「停止采集并保存」。"));
+      }
+    } catch (RuntimeException ignored) {
+    }
     // 恢复上次卡顿采集的结果提示：用户去工作台复现卡顿后会回到本页，必须能看到结论。
     try {
       var lagPrefs = getSharedPreferences("dsha_lag_exports", 0);
@@ -366,6 +384,9 @@ public final class DiagnosticActivity extends AppCompatActivity {
    */
   /** 当前正在进行的采集会话（null 表示未在采集）。 */
   private com.deepseekharness.app.core.LagDiagnostics.Session lagSession;
+  /** 采集会话的 nonce；持久化在 SharedPreferences 里，避免退出界面后会话丢失。 */
+  private String lagNonce = "";
+  private static final String LAG_PREFS = "dsha_lag_exports";
   /**
    * 卡顿诊断入口：未在采集 → 开始；已在采集 → 停止并保存。
    *
@@ -385,6 +406,11 @@ public final class DiagnosticActivity extends AppCompatActivity {
                 try {
                   var session = com.deepseekharness.app.core.LagDiagnostics.start(getApplicationContext());
                   lagSession = session;
+                  lagNonce = session.nonce();
+                  getSharedPreferences(LAG_PREFS, 0).edit()
+                      .putString("active_nonce", lagNonce)
+                      .putLong("active_started", System.currentTimeMillis())
+                      .apply();
                   runOnUiThread(
                       () -> {
                         if (isFinishing() || isDestroyed()) return;
@@ -401,6 +427,11 @@ public final class DiagnosticActivity extends AppCompatActivity {
                       () -> {
                         if (isFinishing() || isDestroyed()) return;
                         button.setEnabled(true);
+                        button.setText(com.deepseekharness.app.util.UiText.text("采集卡顿诊断"));
+                        getSharedPreferences(LAG_PREFS, 0)
+                            .edit().remove("active_nonce").remove("active_started").apply();
+                        lagSession = null;
+                        lagNonce = "";
                         status.setText(
                             com.deepseekharness.app.util.UiText.format("无法开始采集：%s", detail));
                         Toast.makeText(getApplicationContext(), detail, Toast.LENGTH_LONG).show();
@@ -415,6 +446,8 @@ public final class DiagnosticActivity extends AppCompatActivity {
     // ── 停止采集并保存 ──
     final var session = lagSession;
     lagSession = null;
+    lagNonce = "";
+    getSharedPreferences(LAG_PREFS, 0).edit().remove("active_nonce").remove("active_started").apply();
     button.setEnabled(false);
     status.setText(com.deepseekharness.app.util.UiText.text("正在停止采集并整理结果…"));
     new Thread(

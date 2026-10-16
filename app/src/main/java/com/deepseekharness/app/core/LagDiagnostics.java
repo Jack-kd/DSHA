@@ -58,6 +58,17 @@ public final class LagDiagnostics {
     return new Session(nonce, rootfs);
   }
 
+  /**
+   * 用已存在的 nonce 重建会话（界面被销毁重建后，用来继续「停止」流程）。
+   *
+   * <p>Session 不是可序列化的，只把 nonce 存进偏好；这里用当前环境的 rootfs 重建，
+   * 这样用户离开诊断页再回来，仍能正确执行「停止采集并保存」而不是重新开始。
+   */
+  public static Session resumeSession(Context context, String nonce) {
+    File rootfs = HarnessController.get(context.getApplicationContext()).proot().getRootfsDir();
+    return new Session(nonce, rootfs);
+  }
+
   /** 查询采样器当前状态（供界面显示「采集中…」与已采秒数）。 */
   public static String state(Context context) {
     try {
