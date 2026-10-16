@@ -36,13 +36,6 @@
       "asset": "office-fonts-patch.json"
     },
     {
-      "asset": "client-hmr-poll-patch.json",
-      "module": "@deepseek-ai/dsh-client-hmr/lib/index.js",
-      "markers": [
-        "DSHA_HMR_POLL_INTERVAL_V1"
-      ]
-    },
-    {
       "asset": "flock-libc-patch.json",
       "module": "@deepseek-ai/node-addon-system/lib/flock.js",
       "markers": [

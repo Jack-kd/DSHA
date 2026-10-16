@@ -36,7 +36,6 @@
     "managed-package-proofs.json",
     "managed-runtime-inputs.json",
     "office-fonts-patch.json",
-    "client-hmr-poll-patch.json",
     "flock-libc-patch.json",
     "offline-rootfs.version",
     "pdf-compat-patch.json",

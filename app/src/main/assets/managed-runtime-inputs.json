@@ -349,7 +349,6 @@
     "language-patch.json",
     "lexical-claim-patch.json",
     "office-fonts-patch.json",
-    "client-hmr-poll-patch.json",
     "flock-libc-patch.json",
     "offline-rootfs.bin",
     "offline-rootfs.version",

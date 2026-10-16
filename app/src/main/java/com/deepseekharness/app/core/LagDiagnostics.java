@@ -364,28 +364,6 @@ public final class LagDiagnostics {
     StringBuilder out = new StringBuilder();
     try {
       File rootfs = HarnessController.get(app).proot().getRootfsDir();
-      // 关键：client-hmr 的轮询间隔与 profile 覆盖（判断修复是否真的生效）
-      File hmr = new File(rootfs,
-          "usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-hmr/lib/index.js");
-      out.append("client-hmr 模块: ").append(hmr.isFile() ? "存在" : "缺失").append('\n');
-      if (hmr.isFile()) {
-        String src = readSmall(hmr, 64 * 1024);
-        java.util.regex.Matcher m =
-            java.util.regex.Pattern.compile("pollIntervalMs:[^;]*?default\\((\\d+)\\)").matcher(src);
-        out.append("  default pollIntervalMs=").append(m.find() ? m.group(1) : "?").append('\n');
-        out.append("  DSHA 补丁标记存在=")
-            .append(src.contains("DSHA_HMR_POLL_INTERVAL_V1")).append('\n');
-        out.append("  模块字节数=").append(src.length()).append('\n');
-      }
-      File patch = new File(rootfs, "root/.dsh/profiles/web/cordis.patch.yml");
-      if (patch.isFile()) {
-        String text = readSmall(patch, 64 * 1024);
-        out.append("cordis.patch.yml: 字节=").append(text.length())
-            .append(" 含 client-hmr 覆盖=").append(text.contains("id: client-hmr")).append('\n');
-        java.util.regex.Matcher m =
-            java.util.regex.Pattern.compile("pollIntervalMs:\\s*(\\d+)").matcher(text);
-        out.append("  profile 里 pollIntervalMs=").append(m.find() ? m.group(1) : "无").append('\n');
-      }
       // 受管资产版本与运行时身份
       File desc = new File(rootfs, "linux/.runtime-descriptor.json");
       if (desc.isFile()) out.append("runtime-descriptor 存在=").append(desc.length()).append("字节\n");

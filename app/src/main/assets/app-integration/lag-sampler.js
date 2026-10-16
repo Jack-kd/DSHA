@@ -121,10 +121,9 @@ function startLagProbe(intervalMs, sink) {
 /**
  * 客户端 bundle 体积分析 —— 定位「点设置/工作区为什么要等」。
  *
- * 背景（实测发现）：dsh 把每个客户端插件编成独立的 client.js，由 HTTP 逐个提供，
- * 且【不做压缩】（serveBundle 直接 res.end，无 gzip/br）。浏览器进 Web 要下载并
- * 解析全部 bundle；其中 dsh-client-ui-settings-account 达 5.03MB，且内含 8 张
- * base64 PNG 欢迎图（合计 3.63MB）—— 点「设置」必然要下载解析它，这就是卡顿源之一。
+ * 背景：dsh 把每个客户端插件编成独立的 client.js，由 HTTP 逐个提供且不做压缩。
+ * 本函数只做【客观测量】——列出各包体积、内嵌 base64 图片占比等，供与
+ * eventLoop / cpuProfile 的结论交叉验证；不预设某一项就是卡顿主因。
  *
  * 本函数把这些包的体积、内嵌 base64 占比、以及 HTTP 服务端是否压缩记录下来，
  * 供报告直接定位「哪个包、哪类内容」造成加载慢。
@@ -192,12 +191,13 @@ function analyzeClientBundles() {
   out.embeddedImagePercent = grand ? +((grandImg / grand) * 100).toFixed(1) : 0;
   out.biggest = out.bundles[0] ? { name: out.bundles[0].name, MiB: +(out.bundles[0].bytes / 1048576).toFixed(2) } : null;
 
+  // 这些只是【客观测量】，不预设它们是卡顿主因；需与 eventLoop/cpuProfile 联合判断。
   if (out.bundles[0] && out.bundles[0].embeddedImageBytes > 1048576)
-    out.findings.push(`最大包 ${out.bundles[0].name} 有 ${(out.bundles[0].embeddedImageBytes/1048576).toFixed(2)}MB 内嵌 base64 图片（点相关页面要下载解析这些）`);
+    out.findings.push(`最大包 ${out.bundles[0].name} 含 ${(out.bundles[0].embeddedImageBytes/1048576).toFixed(2)}MB 内嵌 base64 图片（体积事实）`);
   if (out.embeddedImagePercent > 20)
-    out.findings.push(`内嵌 base64 图片占客户端 bundle 总量的 ${out.embeddedImagePercent}%（可外置为文件，避免 JS 解析开销）`);
+    out.findings.push(`内嵌 base64 图片占客户端 bundle 总量的 ${out.embeddedImagePercent}%（体积构成事实）`);
   if (out.totals[roots[0]] && out.totals[roots[0]].totalMiB > 8)
-    out.findings.push(`客户端 bundle 合计 ${out.totals[roots[0]].totalMiB}MiB，且服务端未压缩传输（serveBundle 无 gzip/br）`);
+    out.findings.push(`客户端 bundle 合计 ${out.totals[roots[0]].totalMiB}MiB（服务端未压缩传输，serveBundle 无 gzip/br）`);
   return out;
 }
 
@@ -547,9 +547,9 @@ async function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore
       notes.push('常驻剖析中与同步 I/O 相关的热点：' + syncSuspects.slice(0, 5).map((f) => `${f.function}(${f.selfMs}ms)`).join('、'));
   }
   if (result.clientBundles && result.clientBundles.biggest)
-    notes.push(`客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
+    notes.push(`[体积事实] 客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
   if (result.clientBundles && result.clientBundles.findings.length)
-    for (const f of result.clientBundles.findings) notes.push('发现：' + f);
+    for (const f of result.clientBundles.findings) notes.push('[体积事实] ' + f);
   if (fsDelta.length) notes.push(`fs 最重：` + fsDelta.slice(0, 3).map((r) => `${r.op} ${r.count}次/${r.ms}ms`).join('、'));
   notes.push(`窗口 CPU ${result.cpu.cpuPercent}%（user ${result.cpu.userSeconds}s / sys ${result.cpu.systemSeconds}s）`);
   if (result.cpu.systemSeconds > result.cpu.userSeconds * 2 && result.cpu.systemSeconds > 0.5)
