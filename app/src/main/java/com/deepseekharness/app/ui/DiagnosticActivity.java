@@ -203,6 +203,32 @@ public final class DiagnosticActivity extends AppCompatActivity {
               }
             });
     findViewById(R.id.diagnostic_lag).setOnClickListener(v -> captureLag());
+    // 状态行可点：把最近一次卡顿结果「另存到自选位置」（自动保存已写入 Download/DSHA/）
+    findViewById(R.id.diagnostic_lag_status)
+        .setOnClickListener(
+            v -> {
+              if (pendingLagReport == null || pendingLagReport.isEmpty()) {
+                Toast.makeText(
+                        this,
+                        com.deepseekharness.app.util.UiText.text("还没有采集结果，请先点「采集卡顿诊断」"),
+                        Toast.LENGTH_LONG)
+                    .show();
+                return;
+              }
+              try {
+                lagExporter.launch(
+                    "DSHA-lag-"
+                        + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT)
+                            .format(new java.util.Date())
+                        + ".txt");
+              } catch (RuntimeException error) {
+                Toast.makeText(
+                        this,
+                        com.deepseekharness.app.util.UiText.text("无法打开保存位置，结果已在 Download/DSHA/"),
+                        Toast.LENGTH_LONG)
+                    .show();
+              }
+            });
     findViewById(R.id.diagnostic_export)
         .setOnClickListener(
             v -> {
@@ -257,6 +283,17 @@ public final class DiagnosticActivity extends AppCompatActivity {
                 R.id.diagnostic_lag
               }) findViewById(id).setEnabled(!busy);
         });
+    // 恢复上次卡顿采集的结果提示：用户去工作台复现卡顿后会回到本页，必须能看到结论。
+    try {
+      var lagPrefs = getSharedPreferences("dsha_lag_exports", 0);
+      String lastPath = lagPrefs.getString("last_name", "");
+      if (!lastPath.isEmpty()) {
+        ((TextView) findViewById(R.id.diagnostic_lag_status))
+            .setText("上次采集结果已保存到 Download/DSHA/" + lastPath);
+        pendingLagReport = lagPrefs.getString("last_text", null);
+      }
+    } catch (RuntimeException ignored) {
+    }
     if (saved == null) {
       if (getIntent().getBooleanExtra("download_error_logs", false)) logs.download();
       // 首页先展示检查范围，由用户发起耗时探针。
@@ -316,6 +353,16 @@ public final class DiagnosticActivity extends AppCompatActivity {
    * <p>采集期间禁用按钮并显示进度；采集在后台线程进行，不阻塞界面。
    * 卡顿点可能隐藏，因此报告含宿主/容器/HTTP/配置四个层面的原始数据。
    */
+  /**
+   * 卡顿诊断：后台采集（默认 30 秒）→ 完成后**自动保存**到 Download/DSHA/。
+   *
+   * <p>为什么必须自动保存：用户要复现卡顿就必须离开诊断页（去点设置/选工作区），
+   * 而采集完成时人往往不在这个页面上。若沿用「弹保存框」的做法，结果会在页面
+   * 销毁时被丢弃（正是用户遇到的「没看到保存界面」）。因此这里改成：采集结论
+   * 一出来就立刻写盘并记住路径，回到页面时直接显示「已保存 + 文件位置」。
+   *
+   * <p>同时保留「另存为」入口（按钮下方状态行可点），供需要自选位置的用户使用。
+   */
   private void captureLag() {
     final android.widget.Button button = findViewById(R.id.diagnostic_lag);
     final android.widget.TextView status = findViewById(R.id.diagnostic_lag_status);
@@ -344,19 +391,52 @@ public final class DiagnosticActivity extends AppCompatActivity {
                             String.valueOf(error.getMessage())));
                 note = "";
               }
+
+              // 无论用户此刻在哪个页面，先把结果落盘（关键：不依赖 UI 存活）。
+              String savedPath = "";
+              String savedName = "";
+              if (ok) {
+                String name =
+                    "DSHA-lag-"
+                        + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT)
+                            .format(new java.util.Date())
+                        + ".txt";
+                try {
+                  java.io.File staged =
+                      java.io.File.createTempFile(
+                          "dsha-lag-", ".txt", getApplicationContext().getCacheDir());
+                  com.deepseekharness.app.util.Compat.write(staged, text);
+                  var written =
+                      com.deepseekharness.app.data.DownloadsExport.write(
+                          getApplicationContext(), staged, name);
+                  savedPath = written.displayName;
+                  savedName = written.displayName;
+                  // 记录最近一次导出，供页面恢复后显示与「另存为」复用。
+                  getSharedPreferences("dsha_lag_exports", 0)
+                      .edit()
+                      .putString("last_text", text)
+                      .putString("last_name", written.displayName)
+                      .apply();
+                  pendingLagReport = text;
+                } catch (Exception saveError) {
+                  savedName =
+                      com.deepseekharness.app.util.SensitiveData.redact(
+                          String.valueOf(saveError.getMessage()));
+                }
+              }
+
               final String report = text;
               final String probeNote = note;
               final boolean collected = ok;
+              final String saved = savedPath;
+              final String saveNote = savedName;
               runOnUiThread(
                   () -> {
                     if (isFinishing() || isDestroyed()) return;
                     button.setEnabled(true);
                     long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
-                    status.setText(
-                        collected
-                            ? "采集完成（" + elapsed + " 秒）· " + probeNote
-                            : com.deepseekharness.app.util.SensitiveData.redact(report));
                     if (!collected) {
+                      status.setText(com.deepseekharness.app.util.SensitiveData.redact(report));
                       Toast.makeText(
                               getApplicationContext(),
                               com.deepseekharness.app.util.SensitiveData.redact(report),
@@ -364,23 +444,19 @@ public final class DiagnosticActivity extends AppCompatActivity {
                           .show();
                       return;
                     }
-                    pendingLagReport = report;
-                    try {
-                      lagExporter.launch(
-                          "DSHA-lag-"
-                              + new java.text.SimpleDateFormat(
-                                      "yyyyMMdd-HHmmss", java.util.Locale.ROOT)
-                                  .format(new java.util.Date())
-                              + ".txt");
-                    } catch (RuntimeException error) {
-                      pendingLagReport = null;
-                      Toast.makeText(
-                              getApplicationContext(),
-                              com.deepseekharness.app.util.UiText.text(
-                                  "无法打开保存位置，可先复制诊断报告"),
-                              Toast.LENGTH_LONG)
-                          .show();
-                    }
+                    status.setText(
+                        saved.isEmpty()
+                            ? "采集完成（" + elapsed + " 秒），但自动保存失败：" + saveNote
+                            : "采集完成（" + elapsed + " 秒）· 已保存到 Download/DSHA/"
+                                + saved
+                                + "\n" + probeNote);
+                    Toast.makeText(
+                            getApplicationContext(),
+                            saved.isEmpty()
+                                ? "采集完成，但自动保存失败"
+                                : "卡顿日志已自动保存到 Download/DSHA/",
+                            Toast.LENGTH_LONG)
+                        .show();
                   });
             },
             "lag-capture")
