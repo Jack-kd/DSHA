@@ -31,13 +31,120 @@ public final class LagDiagnostics {
   public record Snapshot(String text, String rawJson, boolean probeRan, String probeNote) {}
 
   /** 宿主写请求、dsh 进程内采样器读取（相对 rootfs 的路径）。 */
+  /** 采集是否已启动（含 nonce，供界面跟踪）。 */
+  public record Session(String nonce, File rootfs) {}
+
+  /**
+   * 开始一次手动采集（start/stop 模式）。
+   *
+   * <p>与旧的固定窗口不同：这里只负责「开始」，采样一直进行到 {@link #stop} 被调用。
+   * 用户可以先点开始，再去工作台复现卡顿（哪怕加载几分钟），回来后点停止。
+   *
+   * @return 会话对象（含 nonce，停止时要传回同一个）
+   */
+  public static Session start(Context context) throws Exception {
+    Context app = context.getApplicationContext();
+    HarnessController controller = HarnessController.get(app);
+    var proot = controller.proot();
+    if (!proot.isEnvironmentReady()) throw new Exception("环境未就绪，无法采集");
+    File rootfs = proot.getRootfsDir();
+    File sampler = new File(rootfs, SAMPLER_PATH);
+    if (!sampler.isFile())
+      throw new Exception("进程内采样器缺失（" + SAMPLER_PATH + "）；需重新安装受管资产并重启 Web");
+    if (!controller.isWebRunning()) throw new Exception("Web 未运行：请先启动 DSHA");
+
+    String nonce = Long.toHexString(System.nanoTime()) + "-" + Long.toHexString(System.currentTimeMillis());
+    writeJson(new File(rootfs, REQUEST_PATH), "{\"nonce\":\"" + nonce + "\",\"action\":\"start\"}\n");
+    return new Session(nonce, rootfs);
+  }
+
+  /** 查询采样器当前状态（供界面显示「采集中…」与已采秒数）。 */
+  public static String state(Context context) {
+    try {
+      File rootfs = HarnessController.get(context.getApplicationContext()).proot().getRootfsDir();
+      File state = new File(rootfs, STATE_PATH);
+      if (!state.isFile()) return "";
+      return new String(java.nio.file.Files.readAllBytes(state.toPath()), StandardCharsets.UTF_8);
+    } catch (Exception error) {
+      return "";
+    }
+  }
+
+  /**
+   * 停止采集并取回结果（start/stop 模式的第二步）。
+   *
+   * @return 采集结果快照（含可直接展示的文本与原始 JSON）
+   */
+  public static Snapshot stop(Context context, Session session) throws Exception {
+    Context app = context.getApplicationContext();
+    File rootfs = session.rootfs();
+    File result = new File(rootfs, RESULT_PATH);
+    try { result.delete(); } catch (Exception ignored) {}
+    writeJson(new File(rootfs, REQUEST_PATH), "{\"nonce\":\"" + session.nonce() + "\",\"action\":\"stop\"}\n");
+
+    long deadline = System.currentTimeMillis() + RESULT_WAIT_MARGIN_MS;
+    String json = "";
+    while (System.currentTimeMillis() < deadline) {
+      if (result.isFile()) {
+        try {
+          String text = new String(java.nio.file.Files.readAllBytes(result.toPath()), StandardCharsets.UTF_8);
+          if (text.contains("\"" + session.nonce() + "\"")) { json = text; break; }
+        } catch (Exception ignored) {
+          // 采样器在原子替换，稍后重试。
+        }
+      }
+      try { Thread.sleep(300); } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new Exception("等待采集结果被中断");
+      }
+    }
+    if (json.isEmpty())
+      throw new Exception("停止后未取到结果（采样器可能未随本次 Web 启动加载，需重启 Web）");
+
+    String text = buildText(app, session, json);
+    return new Snapshot(SensitiveData.redact(text), SensitiveData.redact(json), true,
+        "手动采集 " + extractSeconds(json) + " 秒");
+  }
+
+  private static int extractSeconds(String json) {
+    try {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"durationSeconds\"\\s*:\\s*(\\d+)").matcher(json);
+      if (m.find()) return Integer.parseInt(m.group(1));
+    } catch (Exception ignored) {}
+    return 0;
+  }
+
+  /** 组装人类可读报告（宿主侧信息 + 采样器 JSON）。 */
+  private static String buildText(Context app, Session session, String json) {
+    StringBuilder out = new StringBuilder();
+    out.append("DSHA 卡顿诊断（手动采集）\n");
+    out.append("生成时间: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT).format(new java.util.Date())).append("\n\n");
+    try {
+      HarnessController c = HarnessController.get(app);
+      out.append("=== Web 进程 ===\n");
+      out.append("webPort=").append(c.getWebPort()).append(" webRunning=").append(c.isWebRunning())
+         .append(" generation=").append(c.getWebGeneration()).append("\n\n");
+    } catch (Exception ignored) {}
+    out.append("=== 采样器原始结果（JSON） ===\n");
+    out.append(json).append("\n");
+    return out.toString();
+  }
+
+  private static void writeJson(File target, String payload) throws Exception {
+    try (java.io.OutputStream out = new java.io.FileOutputStream(target)) {
+      out.write(payload.getBytes(StandardCharsets.UTF_8));
+    }
+  }
+
   private static final String REQUEST_PATH = "root/.dsha-lag-request.json";
   /** 采样器写结果（相对 rootfs 的路径）。 */
   private static final String RESULT_PATH = "root/.dsha-lag-result.json";
+  /** 采样器广播采集状态（开始/采集中/结束）。 */
+  private static final String STATE_PATH = "root/.dsha-lag-state.json";
   /** 采样器模块（由 app-integration 插件在 dsh 进程内启动）。 */
   private static final String SAMPLER_PATH = "root/dsha-app-integration/lag-sampler.js";
-  /** 等待结果的轮询上限（秒数 + 余量）。 */
-  private static final long RESULT_WAIT_MARGIN_MS = 20_000;
+  /** 停止后等待结果写盘的余量。 */
+  private static final long RESULT_WAIT_MARGIN_MS = 30_000;
 
   /**
    * 运行完整采集。

@@ -36,8 +36,9 @@ public final class DiagnosticActivity extends AppCompatActivity {
       registerForActivityResult(
           new ActivityResultContracts.CreateDocument("text/plain"),
           uri -> {
-            if (uri == null || pendingLagReport == null) return;
+            if (uri == null) return;
             final String report = pendingLagReport;
+            if (report == null) return;
             new Thread(
                     () -> {
                       String message;
@@ -47,7 +48,7 @@ public final class DiagnosticActivity extends AppCompatActivity {
                           throw new java.io.IOException(
                               com.deepseekharness.app.util.UiText.text("无法写入所选位置"));
                         stream.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        message = com.deepseekharness.app.util.UiText.text("卡顿诊断已导出");
+                        message = com.deepseekharness.app.util.UiText.text("卡顿诊断已保存");
                       } catch (Exception error) {
                         message =
                             com.deepseekharness.app.util.UiText.format(
@@ -363,49 +364,59 @@ public final class DiagnosticActivity extends AppCompatActivity {
    *
    * <p>同时保留「另存为」入口（按钮下方状态行可点），供需要自选位置的用户使用。
    */
+  /** 当前正在进行的采集会话（null 表示未在采集）。 */
+  private com.deepseekharness.app.core.LagDiagnostics.Session lagSession;
   /**
-   * 让用户选采样时长。卡顿可能持续很久（例如工作区加载 90 秒），30 秒窗口不够，
-   * 因此提供 30/60/120/300 秒档位，并把选择记住。
+   * 卡顿诊断入口：未在采集 → 开始；已在采集 → 停止并保存。
+   *
+   * <p>采用手动 start/stop：用户可以点开始后离开本页，去工作台复现卡顿（哪怕加载
+   * 几分钟），回来后点「停止并保存」，再自己选保存位置。这样窗口长度由用户决定，
+   * 不会像固定 30 秒那样在卡顿还没结束时提前收尾。
    */
-  private int chooseLagSeconds() {
-    final int[] options = {30, 60, 120, 300};
-    final String[] labels = {
-      "30 秒（快速）", "60 秒（推荐，可覆盖较慢加载）", "120 秒（长时间卡顿）", "300 秒（最久，5 分钟）"
-    };
-    android.content.SharedPreferences prefs = getSharedPreferences("dsha_lag_exports", 0);
-    int saved = prefs.getInt("seconds", 60);
-    int checked = 1;
-    for (int i = 0; i < options.length; i++) if (options[i] == saved) checked = i;
-    final int[] chosen = {options[checked]};
-    new androidx.appcompat.app.AlertDialog.Builder(this)
-        .setTitle(com.deepseekharness.app.util.UiText.text("采样时长"))
-        .setSingleChoiceItems(
-            labels,
-            checked,
-            (dialog, which) -> chosen[0] = options[which])
-        .setPositiveButton(
-            com.deepseekharness.app.util.UiText.text("开始采集"),
-            (dialog, which) -> {
-              prefs.edit().putInt("seconds", chosen[0]).apply();
-              runLagCapture(chosen[0]);
-            })
-        .setNegativeButton(com.deepseekharness.app.util.UiText.text("取消"), null)
-        .show();
-    return -1; // 真正的采集在对话框回调里发起
-  }
-
   private void captureLag() {
-    // 入口只负责弹「采样时长」选择；真正的采集在 runLagCapture 里执行。
-    chooseLagSeconds();
-  }
-
-  /** 实际执行采集（由时长选择对话框回调调用）。 */
-  private void runLagCapture(final int seconds) {
     final android.widget.Button button = findViewById(R.id.diagnostic_lag);
     final android.widget.TextView status = findViewById(R.id.diagnostic_lag_status);
+    if (lagSession == null) {
+      // ── 开始采集 ──
+      button.setEnabled(false);
+      status.setText(com.deepseekharness.app.util.UiText.text("正在启动采集…"));
+      new Thread(
+              () -> {
+                try {
+                  var session = com.deepseekharness.app.core.LagDiagnostics.start(getApplicationContext());
+                  lagSession = session;
+                  runOnUiThread(
+                      () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        button.setEnabled(true);
+                        button.setText(com.deepseekharness.app.util.UiText.text("停止采集并保存"));
+                        status.setText(
+                            com.deepseekharness.app.util.UiText.text(
+                                "采集中…现在去工作台复现卡顿（点设置/选工作区），回来后点「停止采集并保存」。"));
+                      });
+                } catch (Exception error) {
+                  final String detail =
+                      com.deepseekharness.app.util.SensitiveData.redact(String.valueOf(error.getMessage()));
+                  runOnUiThread(
+                      () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        button.setEnabled(true);
+                        status.setText(
+                            com.deepseekharness.app.util.UiText.format("无法开始采集：%s", detail));
+                        Toast.makeText(getApplicationContext(), detail, Toast.LENGTH_LONG).show();
+                      });
+                }
+              },
+              "lag-start")
+          .start();
+      return;
+    }
+
+    // ── 停止采集并保存 ──
+    final var session = lagSession;
+    lagSession = null;
     button.setEnabled(false);
-    status.setText("正在采集卡顿数据（" + seconds + " 秒）…\n采集期间可以离开本页去复现卡顿，结果会自动保存。");
-    final long startedAt = System.currentTimeMillis();
+    status.setText(com.deepseekharness.app.util.UiText.text("正在停止采集并整理结果…"));
     new Thread(
             () -> {
               String text;
@@ -413,8 +424,7 @@ public final class DiagnosticActivity extends AppCompatActivity {
               boolean ok;
               try {
                 var snapshot =
-                    com.deepseekharness.app.core.LagDiagnostics.collect(
-                        getApplicationContext(), seconds);
+                    com.deepseekharness.app.core.LagDiagnostics.stop(getApplicationContext(), session);
                 text = snapshot.text();
                 note = snapshot.probeNote();
                 ok = true;
@@ -422,55 +432,19 @@ public final class DiagnosticActivity extends AppCompatActivity {
                 ok = false;
                 text =
                     com.deepseekharness.app.util.UiText.format(
-                        "卡顿诊断采集失败：%s",
+                        "停止采集失败：%s",
                         com.deepseekharness.app.util.SensitiveData.redact(
                             String.valueOf(error.getMessage())));
                 note = "";
               }
-
-              // 无论用户此刻在哪个页面，先把结果落盘（关键：不依赖 UI 存活）。
-              String savedPath = "";
-              String savedName = "";
-              if (ok) {
-                String name =
-                    "DSHA-lag-"
-                        + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT)
-                            .format(new java.util.Date())
-                        + ".txt";
-                try {
-                  java.io.File staged =
-                      java.io.File.createTempFile(
-                          "dsha-lag-", ".txt", getApplicationContext().getCacheDir());
-                  com.deepseekharness.app.util.Compat.write(staged, text);
-                  var written =
-                      com.deepseekharness.app.data.DownloadsExport.write(
-                          getApplicationContext(), staged, name);
-                  savedPath = written.displayName;
-                  savedName = written.displayName;
-                  // 记录最近一次导出，供页面恢复后显示与「另存为」复用。
-                  getSharedPreferences("dsha_lag_exports", 0)
-                      .edit()
-                      .putString("last_text", text)
-                      .putString("last_name", written.displayName)
-                      .apply();
-                  pendingLagReport = text;
-                } catch (Exception saveError) {
-                  savedName =
-                      com.deepseekharness.app.util.SensitiveData.redact(
-                          String.valueOf(saveError.getMessage()));
-                }
-              }
-
               final String report = text;
               final String probeNote = note;
               final boolean collected = ok;
-              final String saved = savedPath;
-              final String saveNote = savedName;
               runOnUiThread(
                   () -> {
                     if (isFinishing() || isDestroyed()) return;
                     button.setEnabled(true);
-                    long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
+                    button.setText(com.deepseekharness.app.util.UiText.text("采集卡顿诊断"));
                     if (!collected) {
                       status.setText(com.deepseekharness.app.util.SensitiveData.redact(report));
                       Toast.makeText(
@@ -480,22 +454,29 @@ public final class DiagnosticActivity extends AppCompatActivity {
                           .show();
                       return;
                     }
+                    pendingLagReport = report;
                     status.setText(
-                        saved.isEmpty()
-                            ? "采集完成（" + elapsed + " 秒），但自动保存失败：" + saveNote
-                            : "采集完成（" + elapsed + " 秒）· 已保存到 Download/DSHA/"
-                                + saved
-                                + "\n" + probeNote);
-                    Toast.makeText(
-                            getApplicationContext(),
-                            saved.isEmpty()
-                                ? "采集完成，但自动保存失败"
-                                : "卡顿日志已自动保存到 Download/DSHA/",
-                            Toast.LENGTH_LONG)
-                        .show();
+                        com.deepseekharness.app.util.UiText.format(
+                            "采集完成（%s）。请选择保存位置。", probeNote));
+                    // 弹系统保存框，由用户自己选路径（不再自动写 Download/DSHA）。
+                    try {
+                      lagExporter.launch(
+                          "DSHA-lag-"
+                              + new java.text.SimpleDateFormat(
+                                      "yyyyMMdd-HHmmss", java.util.Locale.ROOT)
+                                  .format(new java.util.Date())
+                              + ".txt");
+                    } catch (RuntimeException error) {
+                      Toast.makeText(
+                              getApplicationContext(),
+                              com.deepseekharness.app.util.UiText.text(
+                                  "无法打开保存位置，可先复制诊断报告"),
+                              Toast.LENGTH_LONG)
+                          .show();
+                    }
                   });
             },
-            "lag-capture")
+            "lag-stop")
         .start();
   }
 

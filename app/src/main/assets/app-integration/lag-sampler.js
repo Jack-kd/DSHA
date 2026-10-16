@@ -27,6 +27,8 @@ const cjsRequire = createRequire(import.meta.url);
 const REQUEST = '/root/.dsha-lag-request.json';
 const RESULT = '/root/.dsha-lag-result.json';
 const RESULT_TMP = RESULT + '.tmp';
+/** 采集状态广播：宿主据此显示「采集中…」并判断是否已开始。 */
+const STATE = '/root/.dsha-lag-state.json';
 const POLL_MS = 400;
 const MAX_PROFILE_NODES = 4000;
 
@@ -308,7 +310,152 @@ function summarizeProfile(profile) {
   };
 }
 
-/** 一次完整采集。 */
+/**
+ * 采集会话：start() 开始积累，stop() 结束并产出结果。
+ *
+ * 为什么改成 start/stop：用户的实际流程是「点采集 → 去工作台复现卡顿（可能加载很久）
+ * → 回来后手动停止」。固定窗口（如 30 秒）会在卡顿还没结束时提前收尾，抓不到完整过程。
+ * start/stop 让窗口长度由用户决定。
+ */
+function beginSession(context) {
+  const samples = [], worst = [];
+  const startedAt = Date.now();
+  const windowStartIso = new Date(startedAt).toISOString();
+  const probe = startLagProbe(20, (lag) => {
+    samples.push(lag);
+    if (worst.length < 20 || lag > worst[worst.length - 1].ms) {
+      worst.push({ ms: +lag.toFixed(1), at: new Date().toISOString(), sinceStartMs: Date.now() - startedAt });
+      worst.sort((a, b) => b.ms - a.ms);
+      if (worst.length > 20) worst.length = 20;
+    }
+  });
+  const fsBefore = new Map();
+  for (const [k, v] of fsCounters) fsBefore.set(k, v.count);
+  const before = procSelf('atStart');
+
+  // CPU 剖析：整个会话
+  let session = null, profileError = '';
+  let beginning = (async () => {
+    try {
+      const { Session } = cjsRequire('node:inspector');
+      session = new Session();
+      session.connect();
+      await new Promise((res, rej) => session.post('Profiler.enable', {}, (e) => e ? rej(e) : res()));
+      await new Promise((res, rej) => session.post('Profiler.setSamplingInterval', { interval: 1000 }, (e) => e ? rej(e) : res()));
+      await new Promise((res, rej) => session.post('Profiler.start', {}, (e) => e ? rej(e) : res()));
+    } catch (error) { profileError = String((error && error.message) || error); session = null; }
+  })();
+
+  return {
+    startedAt, windowStartIso,
+    /** 当前已采多少秒（宿主可显示进度） */
+    elapsedSeconds() { return Math.round((Date.now() - startedAt) / 1000); },
+    /** 结束采集，返回完整结果对象。 */
+    async finish(extra) {
+      await beginning;
+      let profileSummary = null;
+      try {
+        if (session) {
+          const { profile } = await new Promise((res, rej) =>
+            session.post('Profiler.stop', {}, (e, r) => e ? rej(e) : res(r)));
+          profileSummary = summarizeProfile(profile);
+          try { session.disconnect(); } catch {}
+        }
+      } catch (error) { profileError = String((error && error.message) || error); }
+      probe.stop();
+      return buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra });
+    },
+  };
+}
+
+/** 把一次会话的原始数据整理成可序列化结果。 */
+function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra }) {
+  const after = procSelf('atEnd');
+  const sorted = samples.slice().sort((a, b) => a - b);
+  const fsDelta = [];
+  for (const [op, row] of fsCounters) {
+    const was = fsBefore.get(op) || 0;
+    if (row.count - was > 0) fsDelta.push({ op, count: row.count - was, ms: +row.ms.toFixed(1) });
+  }
+  fsDelta.sort((a, b) => b.ms - a.ms);
+  const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+  const dU = ((after.utimeJiffies || 0) - (before.utimeJiffies || 0)) / 100;
+  const dS = ((after.stimeJiffies || 0) - (before.stimeJiffies || 0)) / 100;
+
+  const result = {
+    schema: 3,
+    kind: 'dsha-lag-sampler',
+    nonce: context.nonce,
+    mode: 'manual-start-stop',
+    generatedAt: new Date().toISOString(),
+    durationSeconds: secs,
+    note: (extra && extra.note) || '手动开始/停止采集；时长由用户决定。',
+    process: { pid: process.pid, node: process.version, argv: process.argv.slice(0, 4),
+               uptimeSeconds: +process.uptime().toFixed(1),
+               dshHome: process.env.DSH_HOME || null, profile: process.env.DSHA_STARTUP_PROFILE || null },
+    eventLoop: {
+      probeIntervalMs: 20,
+      sampleCount: samples.length,
+      ...quantiles(sorted),
+      over50ms: samples.filter((v) => v > 50).length,
+      over100ms: samples.filter((v) => v > 100).length,
+      over250ms: samples.filter((v) => v > 250).length,
+      over500ms: samples.filter((v) => v > 500).length,
+      over1000ms: samples.filter((v) => v > 1000).length,
+      histogram: {
+        '0-10': samples.filter((v) => v < 10).length,
+        '10-25': samples.filter((v) => v >= 10 && v < 25).length,
+        '25-50': samples.filter((v) => v >= 25 && v < 50).length,
+        '50-100': samples.filter((v) => v >= 50 && v < 100).length,
+        '100-250': samples.filter((v) => v >= 100 && v < 250).length,
+        '250-500': samples.filter((v) => v >= 250 && v < 500).length,
+        '500+': samples.filter((v) => v >= 500).length,
+      },
+      worst,
+      windowStart: windowStartIso,
+      windowEnd: new Date().toISOString(),
+      sinceStart: { samples: ring.lag.length, summary: quantiles(ring.lag.slice().sort((a, b) => a - b)) },
+    },
+    preWindow: {
+      note: '常驻环缓冲记录最近约 2 分钟；用于捕捉「点采集之前」或「采样窗口结束后」仍在发生的卡顿。',
+      spanSeconds: +((ring.lag.length * 20) / 1000).toFixed(0),
+      summary: quantiles(ring.lag.slice().sort((a, b) => a - b)),
+      significantSpikes: ringSpikes(100),
+      timeline: ringTimeline(2000),
+    },
+    cpuProfile: profileSummary,
+    cpuProfileError: profileError || null,
+    fs: { byOperation: fsDelta },
+    clientBundles: analyzeClientBundles(),
+    proc: { before, after },
+    cpu: { windowSeconds: secs, userSeconds: +dU.toFixed(2), systemSeconds: +dS.toFixed(2),
+           cpuPercent: +(((dU + dS) / secs) * 100).toFixed(2) },
+  };
+
+  const notes = [];
+  notes.push(`手动采集 ${secs} 秒：事件循环 P50=${result.eventLoop.p50}ms P90=${result.eventLoop.p90}ms P99=${result.eventLoop.p99}ms max=${result.eventLoop.max}ms`);
+  if (result.eventLoop.over100ms) notes.push(`${result.eventLoop.over100ms} 次 >100ms 阻塞；最差 ${result.eventLoop.max}ms @ ${result.eventLoop.worst[0] ? result.eventLoop.worst[0].at : '?'}`);
+  if (profileSummary) {
+    notes.push(`CPU 剖析：总自耗时 ${profileSummary.totalSelfMs}ms（采样 ${profileSummary.sampleCount} 次）`);
+    if (profileSummary.gcSelfMs > 0) notes.push(`GC 自耗时 ${profileSummary.gcSelfMs}ms`);
+    if (profileSummary.topFunctions[0])
+      notes.push(`最烧 CPU 的函数：${profileSummary.topFunctions[0].function} (${profileSummary.topFunctions[0].shortUrl}) ${profileSummary.topFunctions[0].selfMs}ms`);
+    if (profileSummary.byModule[0])
+      notes.push(`最烧 CPU 的模块：${profileSummary.byModule[0].module} ${profileSummary.byModule[0].selfMs}ms`);
+  } else if (profileError) notes.push(`CPU 剖析不可用：${profileError}`);
+  if (result.clientBundles && result.clientBundles.biggest)
+    notes.push(`客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
+  if (result.clientBundles && result.clientBundles.findings.length)
+    for (const f of result.clientBundles.findings) notes.push('发现：' + f);
+  if (fsDelta.length) notes.push(`fs 最重：` + fsDelta.slice(0, 3).map((r) => `${r.op} ${r.count}次/${r.ms}ms`).join('、'));
+  notes.push(`窗口 CPU ${result.cpu.cpuPercent}%（user ${result.cpu.userSeconds}s / sys ${result.cpu.systemSeconds}s）`);
+  if (result.cpu.systemSeconds > result.cpu.userSeconds * 2 && result.cpu.systemSeconds > 0.5)
+    notes.push('系统调用时间显著高于用户态：大量 fs/syscall（proot 穿透的典型特征）');
+  result.notes = notes;
+  return result;
+}
+
+/** 旧接口：固定窗口采集（保留兼容，内部走 beginSession）。 */
 async function measure(seconds, context) {
   const samples = [], worst = [];
   const startedAt = Date.now();
@@ -447,30 +594,64 @@ export function startLagSampler(ctx) {
       fsModule = cjsRequire('node:fs');
       patchFs();
     } catch {}
+    // 常驻轻量探测：始终记录最近约 2 分钟的延迟，供 preWindow 历史使用。
     startLagProbe(20, pushLag);
 
-    let lastNonce = '', busy = false;
+    let lastStartNonce = '';
+    let active = null;   // 正在进行的采集会话
+    const writeState = (value) => {
+      try {
+        writeFileSync(STATE + '.tmp', JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+        renameSync(STATE + '.tmp', STATE);
+      } catch {}
+    };
+
     const timer = setInterval(() => {
-      if (busy) return;
       let request = null;
       try {
         if (!existsSync(REQUEST)) return;
         request = JSON.parse(readFileSync(REQUEST, 'utf8'));
       } catch { return; }
-      if (!request || typeof request.nonce !== 'string' || request.nonce === lastNonce) return;
-      lastNonce = request.nonce;
-      busy = true;
-      const seconds = Math.max(5, Math.min(300, Number(request.seconds) || 30));
-      measure(seconds, { nonce: request.nonce })
-        .then((result) => {
-          try {
-            writeFileSync(RESULT_TMP, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
-            renameSync(RESULT_TMP, RESULT);
-          } catch {}
+      if (!request || typeof request.nonce !== 'string') return;
+      const action = String(request.action || 'start');
+
+      if (action === 'start') {
+        if (request.nonce === lastStartNonce) return;
+        lastStartNonce = request.nonce;
+        // 已有会话在跑：先收尾再开新的，避免丢数据。
+        if (active) { try { active.finish({ note: '前一次采集被新请求取代' }); } catch {} }
+        try { unlinkSync(RESULT); } catch {}
+        active = beginSession({ nonce: request.nonce });
+        writeState({ nonce: request.nonce, phase: 'collecting', startedAt: new Date().toISOString() });
+        try { unlinkSync(REQUEST); } catch {}
+        return;
+      }
+
+      if (action === 'stop') {
+        if (!active) {
+          writeState({ nonce: request.nonce, phase: 'idle', note: '没有正在进行的采集' });
           try { unlinkSync(REQUEST); } catch {}
-        })
-        .catch(() => {})
-        .finally(() => { busy = false; });
+          return;
+        }
+        const session = active;
+        active = null;
+        writeState({ nonce: request.nonce, phase: 'finishing', startedAt: new Date(session.startedAt).toISOString() });
+        session.finish({ note: '用户手动停止采集' })
+          .then((result) => {
+            try {
+              writeFileSync(RESULT_TMP, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
+              renameSync(RESULT_TMP, RESULT);
+            } catch {}
+            writeState({ nonce: request.nonce, phase: 'done', seconds: result.durationSeconds,
+                         startedAt: new Date(session.startedAt).toISOString(), finishedAt: new Date().toISOString() });
+            try { unlinkSync(REQUEST); } catch {}
+          })
+          .catch(() => {
+            writeState({ nonce: request.nonce, phase: 'failed' });
+            try { unlinkSync(REQUEST); } catch {}
+          });
+        return;
+      }
     }, POLL_MS);
     if (timer.unref) timer.unref();
     ctx?.effect?.(() => () => { clearInterval(timer); }, 'dsha-lag-sampler');
