@@ -257,6 +257,39 @@ function procSelf(label) {
   return out;
 }
 
+/** 合并两个剖析摘要（用于把「常驻段」与「会话段」拼成完整覆盖）。 */
+function mergeProfileSummaries(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const fnKey = (f) => f.function + '|' + f.shortUrl + '|' + f.line;
+  const byFn = new Map();
+  for (const src of [a, b])
+    for (const f of (src.topFunctions || [])) {
+      const k = fnKey(f);
+      const cur = byFn.get(k) || { ...f };
+      cur.selfMs = +(cur.selfMs + f.selfMs).toFixed(1);
+      byFn.set(k, cur);
+    }
+  const byMod = new Map();
+  for (const src of [a, b])
+    for (const m of (src.byModule || [])) {
+      const cur = byMod.get(m.module) || { module: m.module, selfMs: 0, functions: 0 };
+      cur.selfMs = +(cur.selfMs + m.selfMs).toFixed(1);
+      cur.functions += m.functions || 0;
+      byMod.set(m.module, cur);
+    }
+  return {
+    coveredSeconds: +(((a.coveredSeconds || 0) + (b.coveredSeconds || 0))).toFixed(0),
+    totalSelfMs: +((a.totalSelfMs || 0) + (b.totalSelfMs || 0)).toFixed(1),
+    idleSelfMs: +((a.idleSelfMs || 0) + (b.idleSelfMs || 0)).toFixed(1),
+    gcSelfMs: +((a.gcSelfMs || 0) + (b.gcSelfMs || 0)).toFixed(1),
+    sampleCount: (a.sampleCount || 0) + (b.sampleCount || 0),
+    topFunctions: [...byFn.values()].sort((x, y) => y.selfMs - x.selfMs).slice(0, 40),
+    byModule: [...byMod.values()].map((r) => ({ ...r, selfMs: +r.selfMs.toFixed(1) }))
+      .sort((x, y) => y.selfMs - x.selfMs).slice(0, 30),
+  };
+}
+
 /** 把 inspector profile 聚合成「函数级自耗时排行」。 */
 function summarizeProfile(profile) {
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
@@ -317,6 +350,65 @@ function summarizeProfile(profile) {
  * → 回来后手动停止」。固定窗口（如 30 秒）会在卡顿还没结束时提前收尾，抓不到完整过程。
  * start/stop 让窗口长度由用户决定。
  */
+/**
+ * 常驻 CPU 剖析器 —— 这是抓到「采集之前」那次长阻塞的关键。
+ *
+ * <p>为什么必须常驻：用户是先经历卡顿、才想起点采集（或用固定窗口时卡顿在窗口外）。
+ * 只在会话内剖析的话，那段阻塞完全不会被归因（实测正是如此：76 秒阻塞发生在
+ * 采集窗口之前，会话剖析里只有 3 个样本）。V8 的采样在独立线程上进行，因此即使
+ * 主线程被同步 I/O 阻塞，也能采到造成阻塞的那个函数。
+ *
+ * <p>内存有界：定期（默认 90 秒）停止并结算成摘要，再重新开始，只保留最近若干段的
+ * 合并摘要。
+ */
+const resident = { session: null, startedAt: 0, intervalMs: 3000, summaries: [], rotating: false, timer: null };
+
+async function residentStart() {
+  try {
+    const { Session } = cjsRequire('node:inspector');
+    const session = new Session();
+    session.connect();
+    await new Promise((res, rej) => session.post('Profiler.enable', {}, (e) => e ? rej(e) : res()));
+    await new Promise((res, rej) => session.post('Profiler.setSamplingInterval', { interval: resident.intervalMs }, (e) => e ? rej(e) : res()));
+    await new Promise((res, rej) => session.post('Profiler.start', {}, (e) => e ? rej(e) : res()));
+    resident.session = session;
+    resident.startedAt = Date.now();
+  } catch { resident.session = null; }
+}
+
+async function residentRotate(keepLatest) {
+  if (!resident.session || resident.rotating) return;
+  resident.rotating = true;
+  const session = resident.session;
+  resident.session = null;
+  try {
+    const { profile } = await new Promise((res, rej) => session.post('Profiler.stop', {}, (e, r) => e ? rej(e) : res(r)));
+    const summary = summarizeProfile(profile);
+    summary.coveredSeconds = +((Date.now() - resident.startedAt) / 1000).toFixed(0);
+    resident.summaries.push(summary);
+    // 只保留最近 3 段（约 4.5 分钟），内存有界。
+    while (resident.summaries.length > 3) resident.summaries.shift();
+    try { session.disconnect(); } catch {}
+  } catch {}
+  resident.rotating = false;
+  if (keepLatest !== false) await residentStart();
+}
+
+/**
+ * 常驻剖析摘要（合并最近若干段），覆盖会话之前的时间。
+ *
+ * <p>注意：进行中的那一段必须现场结算（stop→摘要→立刻重新 start），否则短时间内
+ * 采集时 summaries 还是空的（轮换要等 90 秒）。结算会造成一次极短的剖析空档，
+ * 可接受（相比拿不到采集前的归因，这点损失值得）。
+ */
+async function residentSummaryAsync() {
+  if (resident.session) {
+    await residentRotate(true);   // 结算当前段并立即重开
+  }
+  if (!resident.summaries.length) return null;
+  return resident.summaries.reduce((acc, cur) => mergeProfileSummaries(acc, cur), null);
+}
+
 function beginSession(context) {
   const samples = [], worst = [];
   const startedAt = Date.now();
@@ -363,13 +455,13 @@ function beginSession(context) {
         }
       } catch (error) { profileError = String((error && error.message) || error); }
       probe.stop();
-      return buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra });
+      return await buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra });
     },
   };
 }
 
 /** 把一次会话的原始数据整理成可序列化结果。 */
-function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra }) {
+async function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, before, profileSummary, profileError, context, extra }) {
   const after = procSelf('atEnd');
   const sorted = samples.slice().sort((a, b) => a - b);
   const fsDelta = [];
@@ -425,6 +517,10 @@ function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, befo
     },
     cpuProfile: profileSummary,
     cpuProfileError: profileError || null,
+    // 常驻剖析：覆盖「采集窗口之前」的时间（关键：用户往往先经历卡顿、才点采集，
+    // 那段阻塞只可能在这里被归因）。
+    residentProfile: await residentSummaryAsync(),
+    residentProfileNote: '常驻 CPU 剖析，定期轮换、只保留最近约 4.5 分钟；用于归因采集窗口之前发生的卡顿。',
     fs: { byOperation: fsDelta },
     clientBundles: analyzeClientBundles(),
     proc: { before, after },
@@ -443,138 +539,13 @@ function buildResult({ samples, worst, windowStartIso, startedAt, fsBefore, befo
     if (profileSummary.byModule[0])
       notes.push(`最烧 CPU 的模块：${profileSummary.byModule[0].module} ${profileSummary.byModule[0].selfMs}ms`);
   } else if (profileError) notes.push(`CPU 剖析不可用：${profileError}`);
-  if (result.clientBundles && result.clientBundles.biggest)
-    notes.push(`客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
-  if (result.clientBundles && result.clientBundles.findings.length)
-    for (const f of result.clientBundles.findings) notes.push('发现：' + f);
-  if (fsDelta.length) notes.push(`fs 最重：` + fsDelta.slice(0, 3).map((r) => `${r.op} ${r.count}次/${r.ms}ms`).join('、'));
-  notes.push(`窗口 CPU ${result.cpu.cpuPercent}%（user ${result.cpu.userSeconds}s / sys ${result.cpu.systemSeconds}s）`);
-  if (result.cpu.systemSeconds > result.cpu.userSeconds * 2 && result.cpu.systemSeconds > 0.5)
-    notes.push('系统调用时间显著高于用户态：大量 fs/syscall（proot 穿透的典型特征）');
-  result.notes = notes;
-  return result;
-}
-
-/** 旧接口：固定窗口采集（保留兼容，内部走 beginSession）。 */
-async function measure(seconds, context) {
-  const samples = [], worst = [];
-  const startedAt = Date.now();
-  const windowStartIso = new Date(startedAt).toISOString();
-  const probe = startLagProbe(20, (lag) => {
-    samples.push(lag);
-    if (worst.length < 12 || lag > worst[worst.length - 1].ms) {
-      worst.push({ ms: +lag.toFixed(1), at: new Date().toISOString(), sinceStartMs: Date.now() - startedAt });
-      worst.sort((a, b) => b.ms - a.ms);
-      if (worst.length > 12) worst.length = 12;
-    }
-  });
-
-  const fsBefore = new Map();
-  for (const [k, v] of fsCounters) fsBefore.set(k, v.count);
-  const before = procSelf('atStart');
-
-  // CPU 剖析：整个窗口
-  let profileSummary = null, profileError = '';
-  let session = null;
-  const post = (method, params) => new Promise((resolve, reject) => {
-    session.post(method, params || {}, (err, result) => (err ? reject(err) : resolve(result)));
-  });
-  try {
-    const { Session } = cjsRequire('node:inspector');
-    session = new Session();
-    session.connect();
-    await post('Profiler.enable');
-    await post('Profiler.setSamplingInterval', { interval: 1000 }); // 1ms 采样
-    await post('Profiler.start');
-  } catch (error) { profileError = String(error && error.message || error); session = null; }
-
-  await new Promise((r) => { const t = setTimeout(r, seconds * 1000); if (t.unref) t.unref(); });
-
-  try {
-    if (session) {
-      const { profile } = await post('Profiler.stop');
-      profileSummary = summarizeProfile(profile);
-      if (profileSummary.topFunctions.length > MAX_PROFILE_NODES) profileSummary.topFunctions.length = MAX_PROFILE_NODES;
-      try { session.disconnect(); } catch {}
-    }
-  } catch (error) { profileError = String(error && error.message || error); }
-
-  probe.stop();
-  const after = procSelf('atEnd');
-
-  const sorted = samples.slice().sort((a, b) => a - b);
-  const fsDelta = [];
-  for (const [op, row] of fsCounters) {
-    const was = fsBefore.get(op) || 0;
-    if (row.count - was > 0) fsDelta.push({ op, count: row.count - was, ms: +row.ms.toFixed(1) });
+  const rp = result.residentProfile;
+  if (rp && rp.topFunctions && rp.topFunctions.length) {
+    notes.push(`常驻剖析（覆盖约 ${rp.coveredSeconds}s，含采集之前）：最烧 CPU 的模块 ${rp.byModule && rp.byModule[0] ? rp.byModule[0].module : '?'} / 函数 ${rp.topFunctions[0].function}（${rp.topFunctions[0].selfMs}ms）`);
+    const syncSuspects = rp.topFunctions.filter((f) => /stat|read|open|realpath|Sync|walk|scan/i.test(f.function));
+    if (syncSuspects.length)
+      notes.push('常驻剖析中与同步 I/O 相关的热点：' + syncSuspects.slice(0, 5).map((f) => `${f.function}(${f.selfMs}ms)`).join('、'));
   }
-  fsDelta.sort((a, b) => b.ms - a.ms);
-
-  const secs = seconds;
-  const dU = ((after.utimeJiffies || 0) - (before.utimeJiffies || 0)) / 100;
-  const dS = ((after.stimeJiffies || 0) - (before.stimeJiffies || 0)) / 100;
-
-  const result = {
-    schema: 2,
-    kind: 'dsha-lag-sampler',
-    nonce: context.nonce,
-    generatedAt: new Date().toISOString(),
-    durationSeconds: secs,
-    process: { pid: process.pid, node: process.version, argv: process.argv.slice(0, 4),
-               uptimeSeconds: +process.uptime().toFixed(1),
-               dshHome: process.env.DSH_HOME || null, profile: process.env.DSHA_STARTUP_PROFILE || null },
-    eventLoop: {
-      probeIntervalMs: 20,
-      sampleCount: samples.length,
-      ...quantiles(sorted),
-      over50ms: samples.filter((v) => v > 50).length,
-      over100ms: samples.filter((v) => v > 100).length,
-      over250ms: samples.filter((v) => v > 250).length,
-      over500ms: samples.filter((v) => v > 500).length,
-      over1000ms: samples.filter((v) => v > 1000).length,
-      histogram: {
-        '0-10': samples.filter((v) => v < 10).length,
-        '10-25': samples.filter((v) => v >= 10 && v < 25).length,
-        '25-50': samples.filter((v) => v >= 25 && v < 50).length,
-        '50-100': samples.filter((v) => v >= 50 && v < 100).length,
-        '100-250': samples.filter((v) => v >= 100 && v < 250).length,
-        '250-500': samples.filter((v) => v >= 250 && v < 500).length,
-        '500+': samples.filter((v) => v >= 500).length,
-      },
-      worst,
-      windowStart: windowStartIso,
-      windowEnd: new Date().toISOString(),
-      sinceStart: { samples: ring.lag.length, summary: quantiles(ring.lag.slice().sort((a, b) => a - b)) },
-    },
-    // 「采集前」历史：环缓冲一直在跑，所以即使卡顿发生在点采集之前也能看到。
-    preWindow: {
-      note: '常驻环缓冲记录最近约 2 分钟；用于捕捉「点采集之前」或「采样窗口结束后」仍在发生的卡顿。',
-      spanSeconds: +((ring.lag.length * 20) / 1000).toFixed(0),
-      summary: quantiles(ring.lag.slice().sort((a, b) => a - b)),
-      significantSpikes: ringSpikes(100),
-      timeline: ringTimeline(2000),
-    },
-    cpuProfile: profileSummary,
-    cpuProfileError: profileError || null,
-    fs: { byOperation: fsDelta },
-    clientBundles: analyzeClientBundles(),
-    proc: { before, after },
-    cpu: { windowSeconds: secs, userSeconds: +dU.toFixed(2), systemSeconds: +dS.toFixed(2),
-           cpuPercent: +(((dU + dS) / secs) * 100).toFixed(2) },
-  };
-
-  const notes = [];
-  notes.push(`窗口 ${secs}s：事件循环 P50=${result.eventLoop.p50}ms P90=${result.eventLoop.p90}ms P99=${result.eventLoop.p99}ms max=${result.eventLoop.max}ms`);
-  if (result.eventLoop.over100ms) notes.push(`${result.eventLoop.over100ms} 次 >100ms 阻塞；最差 ${result.eventLoop.max}ms @ ${result.eventLoop.worst[0]?.at || '?'}`);
-  if (profileSummary) {
-    notes.push(`CPU 剖析：总自耗时 ${profileSummary.totalSelfMs}ms（采样 ${profileSummary.sampleCount} 次）`);
-    if (profileSummary.gcSelfMs > 0) notes.push(`GC 自耗时 ${profileSummary.gcSelfMs}ms`);
-    if (profileSummary.idleSelfMs > 0) notes.push(`空闲(idle) ${profileSummary.idleSelfMs}ms（已从热点排名剔除，仅作参考）`);
-    if (profileSummary.topFunctions[0])
-      notes.push(`最烧 CPU 的函数：${profileSummary.topFunctions[0].function} (${profileSummary.topFunctions[0].shortUrl}) ${profileSummary.topFunctions[0].selfMs}ms`);
-    if (profileSummary.byModule[0])
-      notes.push(`最烧 CPU 的模块：${profileSummary.byModule[0].module} ${profileSummary.byModule[0].selfMs}ms`);
-  } else if (profileError) notes.push(`CPU 剖析不可用：${profileError}`);
   if (result.clientBundles && result.clientBundles.biggest)
     notes.push(`客户端 bundle 最大包：${result.clientBundles.biggest.name} ${result.clientBundles.biggest.MiB}MiB；总量 ${result.clientBundles.grandTotalMiB}MiB（内嵌图片占 ${result.clientBundles.embeddedImagePercent}%）`);
   if (result.clientBundles && result.clientBundles.findings.length)
@@ -584,7 +555,6 @@ async function measure(seconds, context) {
   if (result.cpu.systemSeconds > result.cpu.userSeconds * 2 && result.cpu.systemSeconds > 0.5)
     notes.push('系统调用时间显著高于用户态：大量 fs/syscall（proot 穿透的典型特征）');
   result.notes = notes;
-
   return result;
 }
 
@@ -596,6 +566,11 @@ export function startLagSampler(ctx) {
     } catch {}
     // 常驻轻量探测：始终记录最近约 2 分钟的延迟，供 preWindow 历史使用。
     startLagProbe(20, pushLag);
+    // 常驻 CPU 剖析：长期运行、定期轮换，使「采集之前」的阻塞也能被归因。
+    residentStart().catch(() => {});
+    const rotate = setInterval(() => { residentRotate(true).catch(() => {}); }, 90 * 1000);
+    if (rotate.unref) rotate.unref();
+    ctx?.effect?.(() => () => { clearInterval(rotate); residentRotate(false).catch(() => {}); }, 'dsha-lag-resident');
 
     let lastStartNonce = '';
     let active = null;   // 正在进行的采集会话
