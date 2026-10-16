@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "dshVersion": "0.2.0-rc.2",
+  "module": "@deepseek-ai/node-addon-system/lib/flock.js",
+  "patches": [
+    {
+      "before": "    let filename = 'system.node';\n    if (platform === 'linux') {\n        // Node's report types omit the libc field supplied by Linux reports.\n        const report = process.report.getReport();\n        filename = join(report.header.glibcVersionRuntime ? 'glibc' : 'musl', filename);\n    }",
+      "after": "    let filename = 'system.node';\n    if (platform === 'linux') {\n        // DSHA_NO_GETREPORT_LIBC_V1: 不用 process.report.getReport() 判断 libc。\n        // 在 proot 容器里 getReport() 要读大量 /proc 与系统文件，穿透开销极大\n        // （实测一次调用阻塞事件循环 76 秒，发生在首次会话写入拿 flock 时）。\n        // 改为直接看文件系统特征：有 glibc 的 loader/共享库即 glibc，否则视为 musl。\n        const reportFreeIsGlibc = () => {\n            try {\n                const { existsSync } = createRequire(import.meta.url)('node:fs');\n                // glibc 的 loader（各架构名不同）或 libc 共享库，命中任一即认定 glibc。\n                const markers = [\n                    '/lib64/ld-linux-x86-64.so.2', '/lib/ld-linux-aarch64.so.1',\n                    '/lib/ld-linux-armhf.so.3', '/lib/ld-linux.so.3',\n                    '/usr/lib/aarch64-linux-gnu/libc.so.6', '/lib/aarch64-linux-gnu/libc.so.6',\n                    '/usr/lib/x86_64-linux-gnu/libc.so.6', '/lib/x86_64-linux-gnu/libc.so.6',\n                    '/etc/ld.so.cache',\n                ];\n                for (const marker of markers) if (existsSync(marker)) return true;\n                return false;\n            } catch {\n                // 判断失败时按 glibc 处理：Ubuntu rootfs 是本应用的固定基础环境。\n                return true;\n            }\n        };\n        filename = join(reportFreeIsGlibc() ? 'glibc' : 'musl', filename);\n    }"
+    }
+  ]
+}

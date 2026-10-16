@@ -23,7 +23,7 @@ public final class WebLaunchCommand {
         + " && "
         + "export BROWSER=true && "
         + "export DSHA_PRELOAD_PREVIOUS=\"${NODE_OPTIONS-}\" && "
-        + "export NODE_OPTIONS=\"--import=/root/.dsh/startup-observer.cjs ${NODE_OPTIONS-}\" && "
+        + "export NODE_OPTIONS=\"--import=/root/.dsh/startup-observer.cjs --require=/root/.dsh/lag-warmup.cjs ${NODE_OPTIONS-}\" && "
         + "export DSHA_UI_LANGUAGE="
         + ShellQuote.arg(language)
         + " && "

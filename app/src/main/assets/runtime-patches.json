@@ -43,6 +43,13 @@
       ]
     },
     {
+      "asset": "flock-libc-patch.json",
+      "module": "@deepseek-ai/node-addon-system/lib/flock.js",
+      "markers": [
+        "DSHA_NO_GETREPORT_LIBC_V1"
+      ]
+    },
+    {
       "asset": "deepseek-messages-compat-patch.json"
     },
     {
