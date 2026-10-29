@@ -2,6 +2,7 @@ package com.deepseekharness.app;
 
 import android.content.Context;
 import android.util.Base64;
+import com.deepseekharness.app.core.DeviceGrants;
 import com.deepseekharness.app.util.BoundedProcessRunner;
 import com.deepseekharness.app.util.Compat;
 import com.deepseekharness.app.util.Constants;
