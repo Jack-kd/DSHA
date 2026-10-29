@@ -184,6 +184,28 @@ public final class DeviceGrantsFragment extends Fragment {
                 },
                 104);
         });
+    CompoundButton cmdInstall = view.findViewById(R.id.config_cmd_install);
+    CompoundButton cmdOverride = view.findViewById(R.id.config_cmd_override);
+    CompoundButton cmdDangerous = view.findViewById(R.id.config_cmd_dangerous);
+    final DeviceGrants grants = new DeviceGrants(ctx);
+    cmdInstall.setChecked(grants.deviceInstallAllowed());
+    cmdInstall.setOnCheckedChangeListener(
+        (button, enabled) -> {
+          grants.setDeviceInstallAllowed(enabled);
+          grants.syncIntoPolicy();
+        });
+    cmdOverride.setChecked(grants.deviceShellOverride());
+    cmdOverride.setOnCheckedChangeListener(
+        (button, enabled) -> {
+          grants.setDeviceShellOverride(enabled);
+          grants.syncIntoPolicy();
+        });
+    cmdDangerous.setChecked(grants.deviceDangerousCommandAllowed());
+    cmdDangerous.setOnCheckedChangeListener(
+        (button, enabled) -> {
+          grants.setDeviceDangerousCommandAllowed(enabled);
+          grants.syncIntoPolicy();
+        });
     CompoundButton adb = view.findViewById(R.id.config_adb_enable);
     adb.setChecked(DeviceBridgeService.isAdbEnabled(ctx));
     adb.setOnCheckedChangeListener(

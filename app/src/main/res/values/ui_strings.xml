@@ -213,4 +213,12 @@
 
     <string name="ui_m0217" formatted="false">"验证已有连接"</string>
     <string name="ui_m0218" formatted="false">"＋ 新建"</string>
+
+    <string name="ui_grants_cmd_title" formatted="false">"设备命令护栏（按需放行）"</string>
+    <string name="ui_grants_cmd_install" formatted="false">"允许安装/卸载应用"</string>
+    <string name="ui_grants_cmd_install_hint" formatted="false">"放行 pm install / pm uninstall 等安装类命令；磁盘分区、SELinux、挂载、刷机等仍拦截。"</string>
+    <string name="ui_grants_cmd_override" formatted="false">"关闭全部设备命令护栏"</string>
+    <string name="ui_grants_cmd_override_hint" formatted="false">"放行当前进程内一切本可被拦截的设备 shell 命令（仍受 root/Shizuku/ADB 通道本身的授权约束）。"</string>
+    <string name="ui_grants_cmd_dangerous" formatted="false">"放行高危设备命令"</string>
+    <string name="ui_grants_cmd_dangerous_hint" formatted="false">"危险：允许分区、SELinux、setprop、mount、刷机等操作，可能导致设备损坏。仅在确认需要时开启。"</string>
 </resources>

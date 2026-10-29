@@ -868,6 +868,9 @@ public final class HttpShellService {
   /** ADB 每次发送前向原生策略取计划；计划只包含已验证 argv，拒绝时没有可执行内容。 */
   private String devicePlan(String command, boolean root) {
     try {
+      // 由用户「设备能力授权」页按需设置的护栏授权位需在每次判定前同步到进程策略。
+      com.deepseekharness.app.core.DeviceGrants.syncShellOverrides(
+          new com.deepseekharness.app.core.DeviceGrants(ctx));
       com.deepseekharness.app.util.DeviceShellPolicy.Plan plan =
           com.deepseekharness.app.util.DeviceShellPolicy.inspect(command);
       org.json.JSONObject value =

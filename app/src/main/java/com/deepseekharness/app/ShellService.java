@@ -27,6 +27,8 @@ extends IShellService.Stub {
 
     @Override
     public String exec(String cmd) {
+        if (packageContext != null)
+            com.deepseekharness.app.core.DeviceGrants.syncShellOverrides(new com.deepseekharness.app.core.DeviceGrants(packageContext));
         var plan=com.deepseekharness.app.util.DeviceShellPolicy.inspect(cmd);
         try{return DeviceShellExecutor.execute(cmd,this::executeArgv,plan.kind==com.deepseekharness.app.util.DeviceShellPolicy.Kind.STOP?identity():null);}
         catch(java.io.IOException error){return "[POLICY_BLOCKED] "+SensitiveData.redact(error.getMessage())+"\n[EXIT=126]";}

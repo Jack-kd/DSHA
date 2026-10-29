@@ -21,6 +21,34 @@ public final class DeviceShellPolicy {
     DENY
   }
 
+  /** 设备命令护栏的按类授权位。默认全部关闭（= 保持原有策略）；由设置页按需开启。 */
+  public static final class Overrides {
+    public static final Overrides NONE = new Overrides(false, false, false);
+    public final boolean allowInstall; // pm install / uninstall 等安装类
+    public final boolean allowAll; // 全部命令放行（含高危分组）
+    public final boolean allowBlocked; // 是否放开 BLOCK 高危组
+
+    public Overrides(boolean allowInstall, boolean allowAll, boolean allowBlocked) {
+      this.allowInstall = allowInstall;
+      this.allowAll = allowAll;
+      this.allowBlocked = allowBlocked;
+    }
+  }
+
+  /** 全进程共享的当前授权位；默认 NONE，设置页在授权变化时更新。volatile 保证跨线程可见。 */
+  @java.lang.Deprecated // 仅作为进程级 fallback；Android 服务端应从 DeviceGrants 取真实值再经下面的重载注入
+  private static volatile Overrides processOverrides = Overrides.NONE;
+
+  /** 设置当前进程的护栏授权位（可由设置页按需开启）。 */
+  public static void setProcessOverrides(Overrides overrides) {
+    processOverrides = overrides == null ? Overrides.NONE : overrides;
+  }
+
+  /** 读取当前进程的护栏授权位。 */
+  public static Overrides processOverrides() {
+    return processOverrides;
+  }
+
   public static final class Plan {
     public final Kind kind;
     public final List<String> argv, operands;
@@ -111,9 +139,13 @@ public final class DeviceShellPolicy {
       if (name.contains("/")) return deny(com.deepseekharness.app.util.UiText.text("不支持嵌套执行器"));
     }
     args.set(0, name);
-    if (BLOCK.contains(name) || name.startsWith("mkfs.") || name.startsWith("fsck."))
+    if (BLOCK.contains(name) || name.startsWith("mkfs.") || name.startsWith("fsck.")) {
+      Overrides ov = processOverrides();
+      if (ov.allowAll || ov.allowBlocked)
+        return plan(Kind.READ, args, Collections.emptyList());
       return deny(
           com.deepseekharness.app.util.UiText.format("禁止设备分区、SELinux、系统属性、挂载或刷机操作：%s", name));
+    }
     if (READ.contains(name)) return plan(Kind.READ, args, Collections.emptyList());
     if (name.equals("content")) {
       try {
@@ -163,6 +195,9 @@ public final class DeviceShellPolicy {
         }
         return plan(Kind.READ, args, Collections.emptyList());
       }
+      Overrides ov = processOverrides();
+      if (ov.allowAll || ov.allowInstall)
+        return plan(Kind.READ, args, Collections.emptyList());
       return deny(com.deepseekharness.app.util.UiText.text("pm 只允许查询；安装、卸载、清数据和授权不开放给设备命令"));
     }
     if (name.equals("dumpsys")) {

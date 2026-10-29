@@ -91,6 +91,8 @@ public final class RootShell {
     if (!enabled(ctx))
       return com.deepseekharness.app.util.UiText.text(
           "[POLICY_BLOCKED] 未允许 root shell\n[EXIT=126]");
+    DeviceGrants.syncShellOverrides(
+        new com.deepseekharness.app.core.DeviceGrants(ctx)); // 按需授权位应用到进程策略
     DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspect(command);
     if (!plan.allowed()) return plan.reason + "\n[EXIT=126]";
     if (plan.kind == DeviceShellPolicy.Kind.SENSITIVE_READ

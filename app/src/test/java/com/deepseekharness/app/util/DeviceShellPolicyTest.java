@@ -1,9 +1,15 @@
 package com.deepseekharness.app.util;
 
 import org.junit.Test;
+import org.junit.Before;
 import static org.junit.Assert.*;
 
 public class DeviceShellPolicyTest {
+  @Before
+  public void resetOverrides() {
+    DeviceShellPolicy.setProcessOverrides(DeviceShellPolicy.Overrides.NONE);
+  }
+
   private void denied(String... commands) {
     for (String cmd : commands)
       assertEquals(cmd, DeviceShellPolicy.Kind.DENY, DeviceShellPolicy.inspect(cmd).kind);
@@ -345,5 +351,30 @@ public class DeviceShellPolicyTest {
             "/data_mirror/data_ce/null/0",
             "/mnt/expand/fixture/user/0"))
       assertTrue(root, DeviceShellPolicy.smsProviderDescendant(root));
+  }
+
+  @Test
+  public void installOverridePermitsPmInstallButKeepsBlockDangerous() {
+    assertEquals(
+        "pm install default denied",
+        DeviceShellPolicy.Kind.DENY,
+        DeviceShellPolicy.inspect("pm install /sdcard/Download/a.apk").kind);
+    DeviceShellPolicy.setProcessOverrides(
+        new DeviceShellPolicy.Overrides(true, false, false));
+    assertEquals(
+        "allowInstall permits pm install",
+        DeviceShellPolicy.Kind.READ,
+        DeviceShellPolicy.inspect("pm install /sdcard/Download/a.apk").kind);
+    // 危险分组（BLOCK）在只开 install 时仍然被拒
+    assertEquals(
+        "dangerous stays denied when only install is on",
+        DeviceShellPolicy.Kind.DENY,
+        DeviceShellPolicy.inspect("setprop persist.foo 1").kind);
+    // 总开关开时危险分组也放行
+    DeviceShellPolicy.setProcessOverrides(new DeviceShellPolicy.Overrides(false, true, false));
+    assertEquals(
+        "allowAll permits setprop",
+        DeviceShellPolicy.Kind.READ,
+        DeviceShellPolicy.inspect("setprop persist.foo 1").kind);
   }
 }

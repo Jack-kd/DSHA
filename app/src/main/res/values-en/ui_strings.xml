@@ -438,4 +438,12 @@
 
     <string name="ui_m0218" formatted="false">"＋ New"</string>
 
+    <string name="ui_grants_cmd_title" formatted="false">"Device command guard (on-demand)"</string>
+    <string name="ui_grants_cmd_install" formatted="false">"Allow install / uninstall"</string>
+    <string name="ui_grants_cmd_install_hint" formatted="false">"Permit pm install / pm uninstall and similar. Partitioning, SELinux, mount and flashing stay blocked."</string>
+    <string name="ui_grants_cmd_override" formatted="false">"Disable all device command guards"</string>
+    <string name="ui_grants_cmd_override_hint" formatted="false">"Allow every device shell command that would otherwise be blocked in this process (still limited by the root / Shizuku / ADB channel itself)."</string>
+    <string name="ui_grants_cmd_dangerous" formatted="false">"Allow dangerous device commands"</string>
+    <string name="ui_grants_cmd_dangerous_hint" formatted="false">"Danger: allows partitioning, SELinux, setprop, mount, flashing. May damage the device. Enable only when needed."</string>
+
 </resources>
